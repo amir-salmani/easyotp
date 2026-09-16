@@ -1,3 +1,13 @@
+---
+type: Reference
+title: Threat model
+description: Written before the code, so the code can be checked against it.
+status: active
+created: 2026-09-17
+timestamp: 2026-09-17
+tags: []
+---
+
 # Threat model
 
 Written before the code, so the code can be checked against it.

@@ -1,3 +1,13 @@
+---
+type: Reference
+title: Status — 2026-09-07
+description: Written to be picked up cold. What is true, what is only believed, and what to do.
+status: active
+created: 2026-09-17
+timestamp: 2026-09-17
+tags: []
+---
+
 # Status — 2026-09-07
 
 Written to be picked up cold. What is true, what is only believed, and what to do

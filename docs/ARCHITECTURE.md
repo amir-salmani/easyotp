@@ -1,3 +1,13 @@
+---
+type: Reference
+title: Architecture
+description: Three components. No database, no accounts, no server-side state at rest.
+status: active
+created: 2026-09-17
+timestamp: 2026-09-17
+tags: []
+---
+
 # Architecture
 
 Three components. No database, no accounts, no server-side state at rest.

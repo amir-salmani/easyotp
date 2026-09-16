@@ -1,3 +1,13 @@
+---
+type: Reference
+title: "Decision log"
+description: "Format: one decision per entry. Date, what was chosen, what was rejected, why."
+status: active
+created: 2026-09-17
+timestamp: 2026-09-17
+tags: []
+---
+
 # Decision log
 
 Format: one decision per entry. Date, what was chosen, what was rejected, why.
