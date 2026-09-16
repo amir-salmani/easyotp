@@ -16,6 +16,7 @@ project:
   owner: amir
   kind: product
   lifecycle: active
+  flow: release
   visibility: public
   hosting: cloudflare
   toolchain: kotlin
