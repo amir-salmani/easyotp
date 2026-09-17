@@ -4,11 +4,19 @@
     "dockerfile": "Dockerfile",
     "args": { "UID": "1000", "GID": "1000" }
   },
+  // Podman, rootless, since 2026-09-17. `keep-id` maps the container's dev user
+  // onto the host user, so files written into the bind-mounted workspace come out
+  // owned by you rather than by a subuid nobody can read. Without it, rootless
+  // podman maps the container's UID 1000 into the subuid range and the working
+  // tree becomes unwritable from outside the container.
   "runArgs": [
+    "--userns=keep-id",
     "--memory=5g",
     "--memory-swap=5g",
     "--cpus=4"
   ],
+  // A named volume, not a bind mount: Gradle caches survive an image rebuild and
+  // can be dropped on their own with `podman volume rm easyotp-gradle`.
   "mounts": [
     "source=easyotp-gradle,target=/home/dev/.gradle,type=volume"
   ],
