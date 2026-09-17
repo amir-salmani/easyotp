@@ -1,3 +1,13 @@
+---
+type: Readme
+title: EasyOTP
+description: Forward SMS from SIM cards you hold to a Telegram bot you own, over a relay that.
+status: active
+created: 2026-09-17
+timestamp: 2026-09-17
+tags: []
+---
+
 # EasyOTP
 
 Forward SMS from SIM cards you hold to a Telegram bot you own, over a relay that

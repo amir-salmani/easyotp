@@ -2,7 +2,7 @@
 #
 # Tuned for a 16GB host under memory pressure: no emulator, no SDK components we
 # do not build against. The SDK lives in the image (reproducible, matches CI and
-# purges with `docker rmi`); Gradle caches live in a named volume so they survive
+# purges with `podman rmi`); Gradle caches live in a named volume so they survive
 # image rebuilds but can be dropped independently.
 
 FROM eclipse-temurin:17-jdk-noble
