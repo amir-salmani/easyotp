@@ -4,13 +4,16 @@ title: easyotp — design record
 description: OTP forwarder for people who lose access to an Iranian number; architecture, decisions, threat model and status.
 status: active
 created: 2026-09-07
-timestamp: 2026-09-13
+timestamp: 2026-11-08
 tags: [easyotp, android, otp]
 related:
   - ARCHITECTURE.md
   - DECISIONS.md
   - THREAT-MODEL.md
   - STATUS.md
+  - https://github.com/rhythmcache/Dioxamine
+  - https://github.com/dalroot/hawal
+  - https://github.com/hoabba3i-dev/bub-tunnel-releases
 project:
   id: easyotp
   owner: amir
