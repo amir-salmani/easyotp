@@ -101,8 +101,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
+      # --rerun, because one test writes the fixture the next step opens. A
+      # test task restored from the build cache passes without running, and
+      # then there is no fixture.
       - name: Unit tests
-        run: ./gradlew :host:testDebugUnitTest --stacktrace
+        run: ./gradlew :host:testDebugUnitTest --rerun --stacktrace
 
       # The committed fixture only proves that whatever wrote it interoperates.
       # Sealing a fresh one here with the Host's code and opening it with the
