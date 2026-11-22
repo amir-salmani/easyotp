@@ -65,15 +65,31 @@ object MessageClassifier {
     /**
      * The most likely code in the message, or null.
      *
-     * When several candidates appear, the shortest wins. Longer digit runs in an
-     * OTP message are usually account or reference numbers, while the code itself
-     * is the short one the reader is being asked to type.
+     * The candidate nearest a keyword wins: "رمز پویا: 48217365 مبلغ 250000"
+     * means the first number, though the second is shorter. Between candidates
+     * equally near, the shorter wins, since longer runs in such a message are
+     * usually account or reference numbers.
      */
     fun extractCode(body: String): String? {
-        val normalized = normalizeDigits(body)
         if (!isOtp(body)) return null
-        return CODE.findAll(normalized)
-            .map { it.groupValues[1] }
-            .minByOrNull { it.length }
+        val haystack = normalizeDigits(body).lowercase()
+        val keywords = KEYWORDS.flatMap { keyword ->
+            Regex.fromLiteral(keyword).findAll(haystack).map { it.range }.toList()
+        }
+        return CODE.findAll(haystack)
+            .minWithOrNull(
+                compareBy<MatchResult>(
+                    { candidate -> keywords.minOfOrNull { gap(it, candidate.range) } ?: Int.MAX_VALUE },
+                    { it.value.length },
+                ),
+            )
+            ?.value
+    }
+
+    /** Characters between two ranges; zero if they touch or overlap. */
+    private fun gap(a: IntRange, b: IntRange): Int = when {
+        a.last < b.first -> b.first - a.last - 1
+        b.last < a.first -> a.first - b.last - 1
+        else -> 0
     }
 }

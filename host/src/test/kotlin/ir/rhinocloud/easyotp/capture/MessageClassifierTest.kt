@@ -75,6 +75,19 @@ class MessageClassifierTest {
     }
 
     @Test
+    fun `the number next to the keyword wins over a shorter amount`() {
+        // The copy button must paste the code, not the price.
+        assertEquals("48217365", MessageClassifier.extractCode("رمز پویا: 48217365 مبلغ 250000 ریال"))
+        assertEquals("48217365", MessageClassifier.extractCode("رمز پویا: ۴۸۲۱۷۳۶۵ مبلغ ۲۵۰۰۰۰ ریال"))
+    }
+
+    @Test
+    fun `the number next to the keyword wins over a year`() {
+        assertEquals("482173", MessageClassifier.extractCode("کد تایید: 482173 تاریخ 1405/09/02"))
+        assertEquals("482173", MessageClassifier.extractCode("Your code is 482173. Sent 2026 Nov 23"))
+    }
+
+    @Test
     fun `a non-otp message yields no code`() {
         assertNull(MessageClassifier.extractCode("Your delivery 12345 is on the way"))
     }
