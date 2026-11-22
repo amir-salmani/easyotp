@@ -17,6 +17,8 @@ Decisions here are settled — reopen only with new evidence, don't re-derive.
 
 ## D1 — Native Kotlin, not Tauri (2026-08-30)
 
+> **Amended by D19 (2026-11-23).** The capture path stays native for the reason below. The screens move to a signed web bundle.
+
 **Chosen:** 100% native Android (Kotlin + Jetpack Compose). No Tauri, no WebView.
 
 **Rejected:** Tauri v2 Android shell with a Kotlin plugin for the capture path.
@@ -31,6 +33,8 @@ added build surface, added APK size, zero benefit. Compose does the same job nat
 ---
 
 ## D2 — Two front doors, one origin (2026-08-30)
+
+> **Superseded by D17 (2026-11-23).** Bridges are now independent origins, and there can be any number of them.
 
 **Chosen:** `otp.services.amirsalmani.com` (Cloudflare zone → Worker custom domain) and
 `otp.services.rhinocloud.ir` (ArvanCloud CDN → origin `*.workers.dev`). Both terminate
@@ -61,6 +65,8 @@ are unreachable from outside Iran — check from inside the country, or via the 
 
 ## D3 — Stateless relay, no database (2026-08-30)
 
+> **Amended by D16 (2026-11-23).** A bridge now holds sealed messages until a Receiver collects them. It still holds nothing it can read.
+
 **Chosen:** Worker persists nothing. All state — message archive, routing rules,
 destinations, credentials — lives on the phone. One Durable Object per channel acts
 as a **memory-only mailbox** for the seconds between a Telegram webhook arriving and
@@ -77,6 +83,8 @@ be literally true or it is worthless.
 ---
 
 ## D4 — Bring-your-own bot; pairing approved on-device (2026-08-30)
+
+> **Superseded by D15 and D18 (2026-11-23).** Telegram is gone. Pairing is the spoken code.
 
 **Chosen:** Each user creates their own bot via @BotFather and pastes the token into
 the app. The app seals it and calls `/enroll`; the **Worker** calls Telegram
@@ -142,6 +150,8 @@ something to verify *against*.
 ---
 
 ## D6 — Multiple bots, not forum topics (2026-08-30)
+
+> **Superseded by D15 (2026-11-23).** The routing table survives with Receivers in place of bots: SIM, pinned to ICCID, to N paired Receivers.
 
 **Chosen:** Routing table on-device: SIM (pinned to **ICCID**, so it survives a slot
 swap) → N destinations, each `(bot, chat_id, label)`. Different SIMs can target
@@ -227,6 +237,8 @@ other people's OTPs.
 ---
 
 ## D10 — The build environment is published, not built locally (2026-08-30)
+
+> **Superseded by D20 (2026-11-23).** There is no build image. GitHub Actions builds everything.
 
 **Chosen:** CI builds the Android build image and pushes it to
 `ghcr.io/<owner>/easyotp-build`. Workstations pull it. `./dev pull` is the normal
@@ -360,3 +372,186 @@ nothing while dependency verification is still outstanding (D11).
 
 **Revisit if** the client needs HTTP/2 multiplexing, interceptors, or certificate
 pinning against a rotating key set. None of those are on the M1..M3 path.
+
+---
+
+## D15 — Three products, no Telegram (2026-11-23)
+
+**Chosen:** a **Host** and a **Receiver**, and nothing else is a product.
+
+| Product | Where it runs | What it does |
+|---|---|---|
+| Host APK | the phone holding the SIMs | captures SMS, seals each message to its paired Receivers, sends it through the bridges |
+| Receiver PWA, `pwa.easyotp.rhinocloud.ir` | any phone or computer | shows the messages. Works only once added to the home screen, under the name EasyOTP |
+| Receiver APK | Android | the same screens in a native shell with native notifications. No SMS permission |
+
+**Rejected:** Telegram as the destination, in any form.
+
+**Why:** Telegram reads every message a bot sends, which the old README had to
+admit in its second section. It also made the relay unseal each message to call
+the Bot API, and it asked an ordinary person to create a bot with @BotFather.
+Owning the Receiver removes all three.
+
+**Consequence:** `worker/src/telegram.ts`, the bot half of `EnrollmentClient` and
+the webhook routes are dead code and get deleted.
+
+---
+
+## D16 — Sealed from Host to Receiver; a bridge holds only ciphertext (2026-11-23)
+
+**Chosen:** the Host seals each message with HPKE (the D5 suite, unchanged) to
+the public key of each paired Receiver. A bridge stores the sealed message until
+that Receiver collects it, bounded by a retention limit, then deletes it.
+
+**Rejected:** sealing to the bridge, as D5 did.
+
+**Why:** with the Receiver holding the private key, no bridge and no network in
+between can read a message. THREAT-MODEL A2, "the relay operator can technically
+read plaintext", stops being true, and so does the reason an Iranian-hosted
+bridge was a hard trade.
+
+**What changes in D3:** "stores nothing" becomes "stores nothing it can read".
+A Receiver is often offline, so a mailbox that lasts seconds is not enough. The
+retention limit and where a bridge keeps the bytes are per-bridge settings.
+
+**Leverage:** the Kotlin and TypeScript halves of the sealing are already pinned
+to each other by a fixture regenerated in CI. The TypeScript half moves from the
+Worker into the Receiver.
+
+---
+
+## D17 — Bridges 1 to n, announced by a signed list (2026-11-23)
+
+**Chosen:** a bridge is a dumb, interchangeable relay. The Host sends every
+message to every bridge that answers. A Receiver asks every bridge and shows each
+message once, using the dedupe key the Host already computes.
+
+| # | Bridge | Path |
+|---|---|---|
+| 1 | `easyotp.arsalan.finlawgpt.ir` | ArvanCloud CDN, origin in Tehran |
+| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare, a Worker |
+
+The set of bridges is a small file signed with a key held offline. Every bridge
+serves it; Hosts and Receivers re-read it and verify the signature. **Adding
+bridge 3 is one signed line and needs no new APK.** An APK ships with the list
+as it stood at build time, as the seed.
+
+**Rejected:** endpoints compiled into the app (`Settings.kt` today); bridges that
+sync with each other.
+
+**Why:** D2 had two front doors on one Worker, so one Cloudflare account was a
+single point of failure. Two origins in two countries under two operators fail
+independently. Bridge 1 runs on capacity that can be switched off at an hour's
+notice, which is acceptable only because no single bridge is required.
+
+**Unverified:** whether Cloudflare's free certificate covers hostnames two levels
+below `rhinocloud.ir`. Checked at deploy; the fallback is flatter names.
+
+---
+
+## D18 — Pairing by a spoken code and a matching picture (2026-11-23)
+
+**Chosen:** «کد آشنایی». The Host shows eight digits, valid ten minutes. The
+person holding it reads them over a phone call; the other person types them into
+the Receiver. Both screens then show the same picture and word, and both people
+confirm they match.
+
+**Rejected:** QR codes; pairing links; accounts.
+
+**Why:** the Host is in Iran and the Receiver is abroad, so the two devices are
+almost never in the same room, and the person beside the Host may be elderly.
+Reading a number aloud and naming a fruit needs no camera and no typing. The
+picture is derived from the keys both sides ended up with, so anyone sitting in
+the middle shows two different pictures. That check, not the secrecy of the
+digits, is what makes the pairing safe.
+
+---
+
+## D19 — A fixed native core, and screens that update without an APK (2026-11-23)
+
+**Chosen:** the Host is two layers.
+
+| Layer | Contents | How it changes |
+|---|---|---|
+| Native core | SMS capture, the sealed outbox, crypto, the background service, permissions | only by a new APK |
+| Signed bundle | every screen, the wizard, texts, per-brand guides | fetched through the bridges, verified, cached for offline use |
+| Signed config | the bridge list (D17), OTP rules, sender filters | the same route |
+
+The same web screens are the Receiver PWA and the inside of the Receiver APK.
+
+**Rejected:** Compose screens compiled into the APK (the plan in D1);
+server-driven UI that needs the network to draw a screen.
+
+**Why:** the app is installed once on a phone nobody will touch again. Android
+allows native code and permissions to change only through a new APK, so the
+native part is kept small enough that it should not need to. Everything a person
+sees can then improve without anyone in Iran doing anything. The bundle is
+cached, so a screen never depends on the network.
+
+**The bundle is code, so it is signed.** The core verifies it against a key
+compiled into the APK before loading it. A bridge can withhold an update; it
+cannot alter one.
+
+**Escape hatch:** the core can install a new APK of itself, signed with the same
+release key. It is dormant by default and exists for a security fix in the core.
+Whether Android 12+ really allows this with no prompt is **unverified** and must
+be proven on a phone.
+
+---
+
+## D20 — Every APK is built and signed in GitHub Actions (2026-11-23)
+
+**Chosen:** `.github/workflows/build.yml` runs the tests, regenerates and checks
+the cross-language fixtures, and builds the release APK signed with the one
+release key. A tag `v*` publishes a GitHub Release.
+
+**Rejected:** local release builds; the published build image of D10.
+
+**Why:** the workstation has no Android SDK and should not need one. One place
+that builds means one place that holds the key.
+
+**The release key** is PKCS12, alias `easyotp`, RSA 4096. It exists in two
+places: Actions secrets, and the sops-encrypted secrets repository. Its
+certificate's SHA-256 is
+
+```
+FA:73:5C:EC:02:67:E0:66:61:1C:E1:AF:A3:1C:50:E6:61:D0:FB:8B:51:D6:ED:2E:39:A5:E8:FB:06:6B:BC:5A
+```
+
+and the build fails if an APK is signed with anything else. **Losing this key
+strands every installed phone**, because Android accepts an update only from the
+key that signed the first install.
+
+**Still owed:** Gradle dependency verification (D11), before the first release.
+
+---
+
+## D21 — One download, from a short link on amirsalmani.com (2026-11-23)
+
+**Chosen:** an APK is downloaded once per person, from
+`dl.amirsalmani.com/s/<id>`. The link streams the named asset of the latest
+GitHub Release from that domain, and each id is counted. The service lives in
+the `amirsalmani-com` repository, not here.
+
+**Rejected:** app stores as the first channel; a raw GitHub link.
+
+**Why:** one id per recipient shows which links were used. Asset names are the
+contract between the two repositories: `easyotp-host.apk`, `easyotp-receiver.apk`.
+
+**Unverified:** whether `dl.amirsalmani.com`, which is on Cloudflare, is reachable
+from every Iranian network. Bridge 1 can serve the same file as a fallback.
+
+---
+
+## D22 — Persian and English, everywhere, always (2026-11-23)
+
+**Chosen:** every screen, every message a person reads and every public document
+exists in both languages. Persian is right-to-left and is the default on a
+device set to Persian; a language switch is always reachable.
+
+**Rejected:** Persian only now, English "later".
+
+**Why:** the person beside the Host reads Persian. The person holding the
+Receiver may read either. Adding a second language to finished screens costs
+more than building both from the first one.
+

@@ -1,137 +1,81 @@
 ---
 type: Reference
-title: Status — 2026-09-07
+title: Status — 2026-11-23
 description: Written to be picked up cold. What is true, what is only believed, and what to do.
 status: active
 created: 2026-09-17
-timestamp: 2026-09-17
+timestamp: 2026-11-23
 tags: []
 ---
 
-# Status — 2026-09-07
+# Status — 2026-11-23
 
-Written to be picked up cold. What is true, what is only believed, and what to do
-next. Design rationale lives in [DECISIONS.md](DECISIONS.md); this file is state.
+Written to be picked up cold. Design rationale lives in [DECISIONS.md](DECISIONS.md);
+this file is state.
+
+**The direction changed on 2026-11-23** (D15 to D22): no Telegram, a Host and a
+Receiver sealed end to end, any number of bridges, screens that update without
+an APK, Persian and English throughout. The code below predates that and still
+speaks the old protocol. [ARCHITECTURE.md](ARCHITECTURE.md) and
+[THREAT-MODEL.md](THREAT-MODEL.md) also still describe the Telegram design and
+are rewritten with step 2.
+
+**Nothing has run on a real phone, and no bridge is deployed.** That is still the
+most important fact on this page.
 
 ---
 
-## 1. Verified working
+## 1. What exists
 
-Proven by a test that runs in CI, not by inspection.
-
-| Area | Evidence |
+| Piece | State under the new direction |
 |---|---|
-| Relay: five routes, stateless auth, memory-only mailbox | 20 worker tests |
-| **HPKE seal/open across Tink and hpke-js** | cross-language fixture, regenerated each CI run |
-| **Identifier chain identical in Kotlin and TypeScript** | cross-language fixture, regenerated each CI run |
-| Endpoint failover policy | 11 tests |
-| Delivery outcomes, 4xx vs 5xx handling | 8 tests |
-| Enrolment and pairing parsing | 9 tests |
-| OTP classification incl. Persian digits | 12 tests |
-| Outbox dedupe identity and backoff | 6 tests |
-| APK builds locally and in CI | artifact `easyotp-debug-apk` |
+| SMS capture, SIM registry, encrypted outbox, key vault, OTP classifier | Kept as the Host core. Unit-tested, never run on hardware |
+| Failover policy, relay client | Kept. Two hard-coded endpoints, to become n from a signed list (D17) |
+| HPKE sealing, Kotlin and TypeScript, pinned by a fixture | Kept. Seals to the bridge today, to the Receiver after D16 |
+| Bridge mailbox and identifier chain (`worker/`) | Kept. Holds messages for seconds, in memory; D16 needs bounded retention |
+| Telegram calls, bot enrolment, webhook routes | Dead. To delete (D15) |
+| Screens | A placeholder. To be the signed web bundle (D19) |
+| Build | GitHub Actions, signed with the release key (D20) |
 
-**57 Android tests, 20 worker tests.** The two cross-language contracts matter
-most: both fail silently in production and only a shared fixture catches them.
+Tests as of the last full run: 57 Android, 20 bridge.
 
----
+## 2. Not built
 
-## 2. Built but never run on hardware
+- The Receiver, in either form.
+- Pairing (D18).
+- The signed bundle and config loader, and the bridge list (D17, D19).
+- Heartbeat with battery and charger state.
+- The per-brand setup wizard and self-test.
+- Bridge 1 on Arsalan. Bridge 2 is written but not deployed.
+- The dormant self-update (D19).
 
-Compiles, is unit-tested where it can be, and **has never executed on a phone**.
-Treat every line below as unproven:
+## 3. Build order
 
-- `SmsReceiver` firing from a cold process on a real SMS
-- `SimRegistry` reading real ICCIDs from two live SIMs
-- `KeyVault` against a real Keystore, including the StrongBox fallback
-- `Outbox` against real SQLite on-device
-- `ForwarderService` surviving as a `specialUse` foreground service
-- `BootReceiver` after a real reboot
-- Any actual network call to a relay that does not exist yet
-
-The riskiest of these is **not** the code. It is whether the OEM lets the service
-live (ARCHITECTURE section 6).
-
----
-
-## 3. Not built
-
-- **Compose UI.** Only a placeholder screen exists. Needed: BotFather token
-  entry, SIM labelling with the consent acknowledgement, on-device approve or
-  reject for a pairing request, and a status view.
-- **OEM survival wizard and self-test** — the thing that turns "works on a
-  Nothing Phone" into "works generally".
-- **Worker deployment.** Nothing is deployed. No secret set, no DNS, no webhook.
-- **M2** — inbound commands, send-SMS, USSD, `/status`.
-- **M3** — rules engine, missed calls, SIM keep-alive, archive search.
-
----
+1. ~~Actions builds and signs the Host APK.~~ Done.
+2. Bridge 2 on Cloudflare; Host and Receiver PWA paired by code; a real SMS
+   arrives. Telegram code deleted in the same step.
+3. Signed bundle and config, proven by changing a screen without a new APK.
+4. Wizard, health checks, heartbeat.
+5. Bridge 1 on Arsalan.
+6. Receiver APK.
 
 ## 4. Open debts
 
 | Debt | Why it matters | When |
 |---|---|---|
-| **Gradle dependency verification (D11)** | A mirror can serve different bytes than Google. Currently trusted on reputation alone. CI does not use the mirror, so releases are safe *by construction, not by enforcement*. | Before any release build |
-| **AndroidX pinned a generation back** | Compose 1.12 / core-ktx 1.19 / OkHttp 5.5 all require compileSdk 37, which is catalogued but not installable from the stable channel. | Revisit when 37 ships stable |
-| **Payment rails (D8)** | Foreign gateway needs the Finnish `Oy`, which follows Tampere residency. No billing code should be written before then. | After relocation |
-| **Consent recording** | `SimRoute.consentAcknowledged` exists and is enforced in routing, but no UI sets it. | With the UI |
+| Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first tagged release |
+| AndroidX pinned a generation back | The newer generation needs compileSdk 37 | When 37 is stable |
+| Unverified on hardware | Sideloaded install with `RECEIVE_SMS` on Android 15+, service survival on Xiaomi and Samsung, silent self-update on Android 12+ | Step 2 |
+| Deep hostnames on Cloudflare's free certificate | May force flatter bridge names | Step 2 |
+| `dl.amirsalmani.com` from inside Iran | The first download may need a fallback on bridge 1 | Step 5 |
+| Payment rails (D8), consent recording | Unchanged | Later |
 
----
+## 5. Toolchain facts that cost hours
 
-## 5. Environment
-
-Measured, not assumed — see the memory note `iran-network-constraints`.
-
-- **Blocked from this workstation:** `dl.google.com` (Android SDK *and* Google
-  Maven), `developer.android.com`, Docker Hub.
-- **Works:** `ghcr.io`, Maven Central, `services.gradle.org`, npm,
-  `maven.aliyun.com`.
-- Consequence: the build image is **built in CI and pulled**, never built
-  locally (D10). AndroidX resolves through a mirror gated on `EASYOTP_MIRRORS`,
-  which `./dev` sets inside the container only.
-- Host runs under 4GB free. Container is capped at **4g**; Gradle heaps total
-  ~2GB. An untuned build gets SIGKILLed — this was observed, not predicted.
-
----
-
-## 6. Resuming
-
-```sh
-cd ~/CodeBase/AmirSalmani/easyotp
-./dev up                 # pulls from ghcr.io if absent
-./dev build testDebugUnitTest assembleDebug
-cd worker && npx vitest run
-./dev stop               # frees host RAM; do this when walking away
-```
-
-Toolchain facts that cost hours and are easy to re-trip:
-
-- AGP 9 has Kotlin **built in**; the standalone `kotlin-android` plugin is
-  rejected outright.
-- AGP 9 requires Build Tools 36+ and **ignores** an override to an earlier one.
-- `platforms;android-37` appears in `sdkmanager --list` but **will not install**.
-  Listing is not availability.
-- `org.json` is a **stub** in Android unit tests and throws "not mocked". A real
-  `org.json` is on the test classpath; without it every JSON path is silently
-  untestable.
-
----
-
-## 7. The next real step
-
-Two candidates, and they are not equivalent:
-
-1. **Compose UI.** Assembly over tested parts. Low risk, unblocks a human
-   actually using the thing.
-2. **Deploy the Worker and put a real SIM behind it.** Higher information: it is
-   the only way to learn whether the OEM lets the service live, whether the
-   `.ir` front door behaves as measured, and whether real MCI and Rightel
-   messages classify correctly.
-
-Option 2 answers questions that no amount of further building can. Option 1 is
-required before anyone but a developer can run it. The UI is likely the right
-next move, but the hardware questions should not be deferred far past it — every
-week of building on unverified OEM behaviour is a week of possible rework.
-
-**Nothing about this project is validated against a real SMS yet.** That is the
-single most important fact on this page.
+- AGP 9 has Kotlin built in; the standalone `kotlin-android` plugin is rejected.
+- AGP 9 requires Build Tools 36+ and ignores an override to an earlier one.
+- `platforms;android-37` appears in `sdkmanager --list` but will not install.
+- `org.json` is a stub in Android unit tests and throws "not mocked". A real
+  `org.json` is on the test classpath.
+- `android-actions/setup-android@v3` fails on current runners. The runner's own
+  SDK plus accepted licences is enough.
