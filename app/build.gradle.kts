@@ -13,17 +13,37 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "ir.rhinocloud.easyotp"
+        // Host and Receiver are separate apps that can sit on one phone, so each
+        // has its own id. An id is permanent once a phone has installed it.
+        applicationId = "ir.rhinocloud.easyotp.host"
         // API 26 is the floor for TelephonyManager.sendUssdRequest, which M2 needs
         // for balance and package checks -- the feature that keeps a remote SIM alive.
         minSdk = 26
         targetSdk = 36
-        versionCode = 1
-        versionName = "0.1.0"
+        // CI passes both; a local build is always 1 / dev.
+        versionCode = System.getenv("EASYOTP_VERSION_CODE")?.toIntOrNull() ?: 1
+        versionName = System.getenv("EASYOTP_VERSION_NAME") ?: "0.1.0-dev"
+    }
+
+    // The release key exists only in CI (DECISIONS D20). Without it a release
+    // build is left unsigned instead of falling back to a debug key, so an APK
+    // that installs was necessarily signed with the real one.
+    val releaseKeystore = System.getenv("EASYOTP_KEYSTORE")
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storeType = "pkcs12"
+                storePassword = System.getenv("EASYOTP_KEYSTORE_PASSWORD")
+                keyAlias = "easyotp"
+                keyPassword = System.getenv("EASYOTP_KEYSTORE_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
         release {
+            signingConfig = signingConfigs.findByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
