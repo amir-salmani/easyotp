@@ -49,6 +49,12 @@ android {
         }
     }
 
+    lint {
+        // Both object to requiring telephony, because Chrome OS has none. The
+        // Host is an app for a phone with a SIM in it, and nothing else.
+        disable += setOf("PermissionImpliesUnsupportedChromeOsHardware", "UnsupportedChromeOsHardware")
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
