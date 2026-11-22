@@ -9,19 +9,21 @@ import android.telephony.SubscriptionManager
 /**
  * Resolves an incoming message to the SIM that received it.
  *
- * The identity we key on is the **ICCID**, not the slot index and not the
- * subscription id. Both of those are reassigned across reboots, SIM swaps and
- * dual-SIM toggles; keying on either silently misattributes a message to the
- * wrong person after an unrelated reboot. On a product that routes a
- * spouse's bank codes, that is the worst failure the app can have -- it is
- * silent, and it sends a credential to the wrong reader.
+ * A message routed under the wrong SIM goes to the wrong person, silently, and
+ * on a product that carries a spouse's bank codes that is the worst failure
+ * there is. So the key must be the SIM itself and never the slot it sits in,
+ * which changes with a swap or a dual-SIM toggle.
+ *
+ * The ICCID is that key where Android reveals it. From Android 10 an ordinary
+ * app is given an empty string instead, and then the key is the subscription
+ * id, which the phone assigns to a SIM when it first sees it. See [routingKey].
  *
  * Iranian carriers generally report an empty MSISDN, so the phone number is not
- * available to identify a line. The user labels each SIM once and the label is
- * bound to the ICCID.
+ * available to identify a line. The owner labels each SIM once and the label is
+ * bound to the key.
  */
 data class SimIdentity(
-    /** Stable across reboots and slot changes. The routing key. */
+    /** The routing key. Named for what it usually was; see [SimRegistry.routingKey]. */
     val iccid: String,
     val subscriptionId: Int,
     val slotIndex: Int,
@@ -47,7 +49,7 @@ class SimRegistry(private val context: Context) {
 
         return active.map { info ->
             SimIdentity(
-                iccid = info.iccId.orEmpty(),
+                iccid = routingKey(info.iccId, info.subscriptionId),
                 subscriptionId = info.subscriptionId,
                 slotIndex = info.simSlotIndex,
                 carrierName = info.carrierName?.toString(),
@@ -69,6 +71,18 @@ class SimRegistry(private val context: Context) {
     }
 
     companion object {
+        /**
+         * The key a SIM's route is stored under.
+         *
+         * Never blank: two SIMs that both report an empty ICCID would share one
+         * route, and one person's codes would be sealed to the other's Receiver.
+         *
+         * Unverified on a phone: that a subscription id stays with its SIM
+         * across reboots and re-insertion on the brands this must run on.
+         */
+        fun routingKey(iccId: String?, subscriptionId: Int): String =
+            iccId?.takeIf { it.isNotBlank() } ?: "sub:$subscriptionId"
+
         val INVALID_SUBSCRIPTION_ID: Int
             get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 SubscriptionManager.INVALID_SUBSCRIPTION_ID
