@@ -42,7 +42,13 @@ jobs:
           npm test
 
       - name: Build the image
-        run: docker build -t "$IMAGE:candidate" bridge
+        # The source label is what ties the package to this repository, which
+        # is what lets this job's own token publish it.
+        run: |
+          docker build -t "$IMAGE:candidate" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.licenses=AGPL-3.0-only" bridge
 
       # The image is run the way bridge 1's host runs it: an unprivileged user,
       # a read-only root, a small /tmp and one writable directory. An image
