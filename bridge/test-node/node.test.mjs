@@ -60,11 +60,29 @@ test("holds a sealed message across a restart, then gives it up on ack", async (
 });
 
 test("refuses deposits once it holds as much as it is allowed", async () => {
-  const child = await start({ MAX_TOTAL_BYTES: "600" });
+  // Room for one box (a file costs a whole block) and one message in it.
+  const child = await start({ MAX_TOTAL_BYTES: String(4096 + 700) });
   try {
     const { url } = newBox();
     assert.equal((await post(url, sealed())).status, 200);
-    assert.equal((await post(url, sealed())).status, 507);
+    assert.equal((await post(url, sealed())).status, 507, "the same box is full");
+    assert.equal((await post(newBox().url, sealed())).status, 507, "and there is no room for another box");
+  } finally {
+    await stop(child);
+  }
+});
+
+test("a flood of tiny deposits to made-up boxes is stopped by what it costs on disk", async () => {
+  // Each box is a file, and a file takes a block however small it is. Counting
+  // only the message bytes would let thousands of these through.
+  const child = await start({ MAX_TOTAL_BYTES: String(10 * 4096) });
+  try {
+    const tiny = () => ({ v: 2, id: b64url(randomBytes(12)), enc: b64url(randomBytes(32)), ct: "AA" });
+    const statuses = [];
+    for (let i = 0; i < 20; i++) statuses.push((await post(newBox().url, tiny())).status);
+    assert.ok(statuses.filter((s) => s === 200).length <= 10, "at most ten boxes fit");
+    assert.equal(statuses.at(-1), 507);
+    assert.ok(readdirSync(join(dataDir, "boxes")).length <= 11);
   } finally {
     await stop(child);
   }
