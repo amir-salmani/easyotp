@@ -23,6 +23,8 @@ import ir.rhinocloud.easyotp.net.DepositResult
 import ir.rhinocloud.easyotp.net.Payload
 import ir.rhinocloud.easyotp.net.ReceiverSealer
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -38,8 +40,15 @@ import java.util.concurrent.atomic.AtomicBoolean
  */
 class ForwarderService : Service() {
 
-    private val worker = Executors.newSingleThreadExecutor()
+    private val worker = Executors.newSingleThreadScheduledExecutor()
     private val draining = AtomicBoolean(false)
+
+    /** Set when a wake arrives mid-drain, so the drain runs once more after it ends. */
+    private val drainAgain = AtomicBoolean(false)
+
+    /** The one pending retry. Replaced, never stacked. */
+    @Volatile
+    private var retry: ScheduledFuture<*>? = null
 
     private val outbox by lazy { Outbox(applicationContext) }
     private val settings by lazy { Settings(applicationContext) }
@@ -79,7 +88,12 @@ class ForwarderService : Service() {
         // One drain at a time. Concurrent passes would claim the same rows and
         // deliver duplicates. The Receiver would hide them, but they should
         // not be created here.
-        if (!draining.compareAndSet(false, true)) return
+        if (!draining.compareAndSet(false, true)) {
+            // A message stored after the running drain last looked at the
+            // queue would otherwise wait for the next SMS to be noticed.
+            drainAgain.set(true)
+            return
+        }
 
         worker.execute {
             try {
@@ -104,10 +118,18 @@ class ForwarderService : Service() {
                         val results = try {
                             deposit(message, route)
                         } catch (e: Exception) {
-                            // A stored key that cannot be sealed to. Fail this
-                            // one row, or it would stop the queue behind it.
+                            // Fail this one row, or it would stop the queue
+                            // behind it.
                             Log.e(TAG, "seal failed: ${e.javaClass.simpleName}")
-                            outbox.markFailed(message.id, "seal_failed", System.currentTimeMillis())
+                            if (e is IllegalArgumentException) {
+                                // A stored key of the wrong shape. It will be
+                                // just as wrong on the next attempt.
+                                outbox.markDead(message.id, "seal_failed")
+                            } else {
+                                // Anything else may pass: a Keystore hiccup,
+                                // settings that could not be read this once.
+                                outbox.markFailed(message.id, "seal_error", System.currentTimeMillis())
+                            }
                             continue
                         }
 
@@ -117,9 +139,11 @@ class ForwarderService : Service() {
                                 delivered++
                             }
                             results.any { it is DepositResult.Rejected } -> {
+                                // A bridge refused the message itself, and
+                                // would refuse the same bytes again.
                                 val reason = results.filterIsInstance<DepositResult.Rejected>()
                                     .first().reason
-                                outbox.markFailed(message.id, reason, System.currentTimeMillis())
+                                outbox.markDead(message.id, reason)
                             }
                             else -> outbox.markFailed(
                                 message.id,
@@ -134,7 +158,9 @@ class ForwarderService : Service() {
                     updateNotification(outbox.pendingCount())
                 }
 
-                outbox.purgeSentBefore(System.currentTimeMillis() - ARCHIVE_RETENTION_MILLIS)
+                val now = System.currentTimeMillis()
+                outbox.purgeFinishedBefore(now - ARCHIVE_RETENTION_MILLIS)
+                outbox.purgePendingBefore(now - PENDING_RETENTION_MILLIS)
                 Log.i(TAG, "drain complete delivered=$delivered pending=${outbox.pendingCount()}")
             } catch (e: Exception) {
                 // Never let the drain thread die: the service would stay alive
@@ -142,8 +168,25 @@ class ForwarderService : Service() {
                 Log.e(TAG, "drain failed: ${e.javaClass.simpleName}")
             } finally {
                 draining.set(false)
+                if (drainAgain.getAndSet(false)) drain() else scheduleRetry()
             }
         }
+    }
+
+    /**
+     * Wakes the drain when the earliest failed row is due.
+     *
+     * Without this a message that failed once would wait for the next SMS or a
+     * reboot, since nothing else starts a drain. Runs on the worker, so it
+     * never overlaps the drain it follows.
+     */
+    private fun scheduleRetry() {
+        retry?.cancel(false)
+        val dueAt = runCatching { outbox.nextAttemptAt() }.getOrNull() ?: return
+        val delay = (dueAt - System.currentTimeMillis()).coerceAtLeast(MIN_RETRY_DELAY_MILLIS)
+        retry = runCatching {
+            worker.schedule(Runnable { drain() }, delay, TimeUnit.MILLISECONDS)
+        }.getOrNull() // the worker is shut down when the service is destroyed
     }
 
     /** Seals one message to each of the SIM's Receivers and leaves it at the bridges. */
@@ -207,8 +250,14 @@ class ForwarderService : Service() {
         private const val CHANNEL_ID = "easyotp.forwarder"
         private const val NOTIFICATION_ID = 1
 
-        /** Delivered rows are history; the archive must not grow without bound. */
+        /** Finished rows are history; the table must not grow without bound. */
         private const val ARCHIVE_RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000
+
+        /** A message nobody could be sent for a week is dropped. */
+        private const val PENDING_RETENTION_MILLIS = 7L * 24 * 60 * 60 * 1000
+
+        /** Floor between drains, so a row that is always "due" cannot spin the loop. */
+        private const val MIN_RETRY_DELAY_MILLIS = 1_000L
 
         /** Called by the capture path and on boot. Safe to call repeatedly. */
         fun wake(context: Context) {

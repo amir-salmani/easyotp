@@ -96,9 +96,17 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         return rowId != -1L
     }
 
-    /** Pending rows whose backoff has elapsed, oldest first. */
+    /**
+     * Pending rows whose backoff has elapsed, newest first.
+     *
+     * Newest first because a code is worth most in its first minute: a backlog
+     * of old rows that cannot go anywhere must never stand in front of a fresh
+     * one. A row whose payload cannot be opened is marked dead here, so it does
+     * not come back on every pass and crowd readable rows out of the limit.
+     */
     fun claimReady(now: Long, limit: Int = 20): List<PendingMessage> {
         val rows = mutableListOf<PendingMessage>()
+        val unreadable = mutableListOf<Long>()
         helper.readableDatabase.query(
             TABLE,
             arrayOf("id", "iccid", "received_at", "payload", "attempts"),
@@ -106,17 +114,20 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
             arrayOf(STATE_PENDING, now.toString()),
             null,
             null,
-            "received_at ASC",
+            "received_at DESC",
             limit.toString(),
         ).use { cursor ->
             while (cursor.moveToNext()) {
-                // An undecryptable row skips rather than throwing: one bad blob
-                // must not stop every other message in the queue from going out.
+                val id = cursor.getLong(0)
                 val payload = runCatching {
                     JSONObject(String(vault.open(cursor.getBlob(3))))
-                }.getOrNull() ?: continue
+                }.getOrNull()
+                if (payload == null) {
+                    unreadable += id
+                    continue
+                }
                 rows += PendingMessage(
-                    id = cursor.getLong(0),
+                    id = id,
                     iccid = cursor.getString(1),
                     sender = payload.optString("sender"),
                     body = payload.optString("body"),
@@ -125,6 +136,7 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
                 )
             }
         }
+        unreadable.forEach { markDead(it, "unreadable") }
         return rows
     }
 
@@ -156,18 +168,49 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         )
     }
 
+    /**
+     * Gives up on a row for good. For a message a bridge refused, or one that
+     * cannot be opened or sealed: trying the same bytes again changes nothing,
+     * and a row that stays pending is retried forever.
+     */
+    fun markDead(id: Long, reason: String) {
+        val values = ContentValues().apply {
+            put("state", STATE_DEAD)
+            put("last_error", reason)
+        }
+        helper.writableDatabase.update(TABLE, values, "id = ?", arrayOf(id.toString()))
+    }
+
     fun pendingCount(): Long =
         helper.readableDatabase.rawQuery(
             "SELECT COUNT(*) FROM $TABLE WHERE state = ?",
             arrayOf(STATE_PENDING),
         ).use { if (it.moveToFirst()) it.getLong(0) else 0L }
 
-    /** Delivered rows are history, not queue. Trimmed so the archive cannot grow without bound. */
-    fun purgeSentBefore(cutoff: Long): Int =
+    /** When the earliest pending row may next be tried, or null if nothing is pending. */
+    fun nextAttemptAt(): Long? =
+        helper.readableDatabase.rawQuery(
+            "SELECT MIN(next_attempt_at) FROM $TABLE WHERE state = ?",
+            arrayOf(STATE_PENDING),
+        ).use { if (it.moveToFirst() && !it.isNull(0)) it.getLong(0) else null }
+
+    /** Finished rows are history, not queue. Trimmed so the table cannot grow without bound. */
+    fun purgeFinishedBefore(cutoff: Long): Int =
+        helper.writableDatabase.delete(
+            TABLE,
+            "state IN (?, ?) AND received_at < ?",
+            arrayOf(STATE_SENT, STATE_DEAD, cutoff.toString()),
+        )
+
+    /**
+     * Drops pending rows too old to matter. A SIM nobody paired, or a week
+     * without a network, must not leave thousands of rows to be retried for ever.
+     */
+    fun purgePendingBefore(cutoff: Long): Int =
         helper.writableDatabase.delete(
             TABLE,
             "state = ? AND received_at < ?",
-            arrayOf(STATE_SENT, cutoff.toString()),
+            arrayOf(STATE_PENDING, cutoff.toString()),
         )
 
     private fun attemptsOf(id: Long): Int =
@@ -179,6 +222,7 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
     companion object {
         const val STATE_PENDING = "PENDING"
         const val STATE_SENT = "SENT"
+        const val STATE_DEAD = "DEAD"
 
         private const val DB_NAME = "easyotp-outbox.db"
         private const val DB_VERSION = 1
