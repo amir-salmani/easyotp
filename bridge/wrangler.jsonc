@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "easyotp-bridge",
+  "main": "src/worker.ts",
+  // The newest date the test pool's bundled runtime accepts.
+  "compatibility_date": "2026-08-22",
+
+  // Bridge 2 (DECISIONS D17). Reached only by its own name: the workers.dev
+  // address is filtered in Iran, where the Host is.
+  "workers_dev": false,
+  "routes": [{ "pattern": "easyotp.cfworker.rhinocloud.ir", "custom_domain": true }],
+
+  // One Durable Object per box, holding sealed messages until they are
+  // collected (D16). SQLite-backed, which is the only kind the free plan runs.
+  "durable_objects": {
+    "bindings": [{ "name": "BOX", "class_name": "BoxObject" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BoxObject"] }],
+
+  "observability": { "enabled": true },
+
+  "vars": {
+    // A Durable Object is billed for the time a request is held open, so the
+    // hold here is shorter than on bridge 1.
+    "POLL_HOLD_SECONDS": "25"
+  }
+}
