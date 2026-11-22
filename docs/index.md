@@ -4,13 +4,14 @@ title: easyotp — design record
 description: OTP forwarder for people who lose access to an Iranian number; architecture, decisions, threat model and status.
 status: active
 created: 2026-09-07
-timestamp: 2026-11-08
+timestamp: 2026-11-23
 tags: [easyotp, android, otp]
 related:
   - ARCHITECTURE.md
   - DECISIONS.md
   - THREAT-MODEL.md
   - STATUS.md
+  - BRIDGES.md
   - https://github.com/rhythmcache/Dioxamine
   - https://github.com/dalroot/hawal
   - https://github.com/hoabba3i-dev/bub-tunnel-releases
@@ -29,4 +30,5 @@ project:
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how it works.
 - [DECISIONS.md](DECISIONS.md) — what was settled, and why.
 - [THREAT-MODEL.md](THREAT-MODEL.md) — what it defends against.
+- [BRIDGES.md](BRIDGES.md) — each bridge's contract and measured limits.
 - [STATUS.md](STATUS.md) — where it currently stands.

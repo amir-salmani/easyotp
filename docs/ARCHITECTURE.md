@@ -1,197 +1,146 @@
 ---
 type: Reference
 title: Architecture
-description: Three components. No database, no accounts, no server-side state at rest.
+description: A Host, a Receiver and any number of bridges that cannot read what they carry.
 status: active
 created: 2026-09-17
-timestamp: 2026-09-17
+timestamp: 2026-11-23
 tags: []
 ---
 
 # Architecture
 
-Three components. No database, no accounts, no server-side state at rest.
+Two products, the Host and the Receiver, and bridges that connect them. Why each
+choice was made is in [DECISIONS.md](DECISIONS.md); this file says what exists.
 
 ```
-  ┌─────────────────────────────┐
-  │  Android device (in Iran)   │      SIM 1 ─┐
-  │  ─────────────────────────  │             ├─ dual-SIM handset
-  │  SmsReceiver (manifest)     │      SIM 2 ─┘
-  │       ↓ persist first       │
-  │  Room outbox (encrypted)    │  ← the only durable store in the system
-  │       ↓                     │
-  │  ForegroundService          │
-  │   ├ TransportRacer          │
-  │   └ CommandPoller           │
-  └───────────┬─────────────────┘
-              │  sealed envelope (HPKE), ECDSA-signed
-     ┌────────┴────────┐
-     ▼                 ▼
- otp.services       otp.services
- .rhinocloud.ir     .amirsalmani.com
- (Arvan CDN)        (Cloudflare)
-     │                 │
-     └────────┬────────┘
-              ▼
-  ┌─────────────────────────────┐
-  │  Cloudflare Worker          │  stateless; unseals in memory, never logs bodies
-  │   ├ /enroll   setWebhook    │
-  │   ├ /forward  → Telegram    │
-  │   ├ /w/<ch>   ← Telegram    │
-  │   └ /poll/<ch> long-poll    │
-  │  ChannelMailbox (DO)        │  memory-only, seconds of retention
-  └───────────┬─────────────────┘
-              ▼
-        Telegram Bot API  →  user's own bot  →  user's chat
+  Host (Android, in Iran)                         Receiver (anywhere)
+  ───────────────────────                         ───────────────────
+  SmsReceiver                                     collects from every bridge
+     ↓ persist first                              opens with its private key
+  Outbox (sealed at rest)                         shows each message once
+     ↓                                                     ▲
+  ForwarderService                                         │
+     │ seal to each Receiver's public key                  │
+     ├──────────▶ bridge 1  easyotp.arsalan.finlawgpt.ir ──┤
+     ├──────────▶ bridge 2  easyotp.cfworker.rhinocloud.ir ┤
+     └──────────▶ bridge n ────────────────────────────────┘
 ```
 
-## 1. Capture path (device)
+## The repository
 
-`SmsReceiver` is **manifest-declared**, so it fires even with the app process dead.
-It does the minimum and returns fast:
-
-1. Read PDUs; resolve `subscriptionId` from the intent extra.
-2. Map `subscriptionId` → slot → **ICCID** via `SubscriptionManager`. ICCID is the
-   stable key; slot index and subscription id both change across reboots and swaps.
-3. Write to the encrypted Room outbox. **Persist before anything else** — the process
-   may be killed the instant we return.
-4. Enqueue delivery work.
-
-Iranian carriers generally report an empty MSISDN, so the user labels each SIM once in
-the app ("MCI — personal", "Rightel — spouse") and the label binds to the ICCID.
-
-Multipart SMS must be reassembled before classification; an OTP split across two PDUs
-is common and a naive per-PDU forward produces two useless fragments.
-
-## 2. Delivery path (device → Worker)
-
-The `ForegroundService` (`specialUse`, see D7) owns delivery. `WorkManager` with a
-network constraint is the backstop for when the service is not running.
-
-**Transport racing.** Two endpoints, chosen per message class:
-
-- **OTP-classified: both endpoints in parallel, first success wins.** An OTP is
-  worthless after ~60s. Spending 2× on a sub-kilobyte request to halve tail latency is
-  obviously correct. The Worker dedupes, so double delivery costs nothing.
-- **Everything else: sticky-best.** Per-endpoint EWMA of success rate and latency;
-  send to the winner, fail over instantly on error, re-probe the loser periodically so
-  a recovered path gets picked back up. Never round-robin — it halves your signal.
-
-**Dedupe key.** SMS has no message id. Use
-`SHA256(iccid ‖ sender ‖ body ‖ floor(ts/10s))`, computed on-device and echoed by the
-Worker, so retries and raced duplicates collapse to one Telegram message.
-
-**Backpressure.** The outbox is durable and ordered. A national shutdown means messages
-queue and flush on restore (see D2). Exponential backoff with jitter, capped; no
-unbounded retry storms when the network is half-up.
-
-## 3. Command path (Telegram → device)
-
-The phone is behind CGNAT and cannot be reached inbound. So:
-
-- Telegram POSTs an update to `/w/<channelId>`, authenticated by the webhook
-  `secret_token` header set at enrollment.
-- The Worker hands it to `ChannelMailbox`, a Durable Object named by `channelId`,
-  held **in memory only**.
-- The phone holds a long-poll on `/poll/<channelId>` — ~55s server-side hold, signed
-  request, immediate re-poll on return. One connection per channel; two bots means two
-  idle sockets, which is negligible for battery.
-
-No FCM. Google Play Services reachability from Iran is unreliable and adding it would
-make the app depend on a service we cannot guarantee.
-
-## 4. The Worker
-
-Stateless. Every request carries what it needs.
-
-| Route | Direction | Purpose |
+| Directory | What it is | Runs on |
 |---|---|---|
-| `POST /enroll` | device → | Unseal bot token, call Telegram `setWebhook`, return `getMe`, discard token |
-| `POST /forward` | device → | Unseal `{botToken, chatId, text}`, call `sendMessage`, return message id |
-| `POST /w/<ch>`  | ← Telegram | Verify `secret_token`, park update in mailbox |
-| `GET  /poll/<ch>` | device ↔ | Long-poll the mailbox, signed |
-| `GET  /health`  | device → | Endpoint liveness for the racer |
+| `host/` | The Host app's native core, Kotlin | Android 8+ |
+| `bridge/` | The bridge, TypeScript. One protocol, two entry points | Cloudflare Workers; Node in a container |
+| `receiver/` | The library that opens sealed messages. The Receiver's screens will be built on it | Browsers |
+| `docs/` | This record | |
 
-Rules:
+Gradle is at the root with one module, `:host`. `bridge/` and `receiver/` are
+separate npm packages.
 
-- **Never log message bodies.** Structured logs carry channel id, outcome, latency —
-  nothing else. This is enforced by a lint rule, not by discipline.
-- Bot tokens exist only inside a request's isolate lifetime.
-- Rate limiting via the Workers rate-limit binding, keyed by channel — no counters to
-  persist.
-- Reject any request whose timestamp is outside the replay window.
+## 1. Capture (Host)
 
-## 5. Registration flow
+`SmsReceiver` is declared in the manifest, so it fires with the app process dead.
+
+1. Read the PDUs and join the parts of a multipart SMS. A code split across two
+   parts is useless in both halves.
+2. Resolve the subscription to an **ICCID** through `SimRegistry`. The ICCID is
+   the stable identity; slot and subscription id change across reboots and swaps.
+   A message that cannot be attributed to a SIM is dropped, never guessed.
+3. Write it to the outbox, sealed with a Keystore key. **Persist before anything
+   else**: the process may be killed the moment the receiver returns.
+4. Wake `ForwarderService`.
+
+## 2. Delivery (Host to bridges)
+
+`ForwarderService` is a `specialUse` foreground service (D7) that drains the
+outbox. For each message:
+
+1. Find the SIM's route: its label and its paired Receivers. No route, or consent
+   not acknowledged, and the message stays queued.
+2. Build the payload: SIM label, sender, body, the code if `MessageClassifier`
+   found one, and the time.
+3. Seal the payload to each Receiver's public key with HPKE (D5, D16).
+4. Deposit each sealed message at **every bridge at once**. One bridge accepting
+   is enough.
+
+A message is done when every Receiver's copy has been accepted somewhere.
+Otherwise it backs off, capped at five minutes, and tries again.
+
+**The message id.** A bridge sees one cleartext field besides the box: the id,
+which the Receiver uses to show a message once. It is
+`SHA-256(install salt ‖ outbox key)`, truncated. The salt never leaves the phone,
+so the id is stable across retries and bridges and means nothing to anyone else.
+
+## 3. The bridge
+
+A relay with no key and no accounts. It holds sealed messages until the Receiver
+they are for collects them.
+
+| Route | Who | What |
+|---|---|---|
+| `POST /v2/box/<boxId>` | Host | Deposit one sealed message |
+| `GET /v2/box/<boxId>` | Receiver | Collect everything waiting; waits if the box is empty |
+| `POST /v2/box/<boxId>/ack` | Receiver | Remove what has been collected |
+| `GET /health` | anyone | Liveness |
+
+**Who may do what** is decided from the request alone:
 
 ```
- user ──▶ @BotFather ──▶ bot token
-                            │ paste / QR from desktop
-                            ▼
- app: generate channel keypair in Keystore, seal token to Worker pubkey
-                            │ POST /enroll
-                            ▼
- worker: setWebhook(https://<host>/w/<channelId>, secret_token) ──▶ Telegram
- worker: getMe ──▶ bot username ──▶ app shows "connected to @foo_bot"
- worker: discards token
-                            │
- user ──▶ /start to their own bot ──▶ Telegram ──▶ /w/<ch> ──▶ mailbox
-                            │ phone's long-poll collects it
-                            ▼
- app: "chat 12345 (Amir) wants to pair. Approve?"  ← authorization root:
-                                                     physical possession
+boxKey  --SHA-256-->  boxId
+(Receiver only)       (Host, bridge, the URL)
 ```
 
-`channelId` is 32 random bytes generated on the device. Identifiers descend from it by
-a one-way chain, so the relay can authorise every request without storing anything:
+The Receiver makes `boxKey` and gives the Host only `boxId`. Knowing the id lets
+a Host deposit. Collecting and acknowledging need the key, which the bridge
+checks by hashing it forward. Nothing is stored to make that decision.
 
-```
-channelId  --H-->  secretToken  --H-->  webhookId
- (device only)     (Telegram knows)     (public URL)
-```
+**What a bridge keeps.** A message stays until it is acknowledged or 48 hours
+old. Collecting does not remove it, so a Receiver that dies between reading and
+showing a message gets it again. A box holds at most 100 messages and 512 KB;
+past that the oldest goes. A deposit is at most 16 KB.
 
-Each link is preimage-resistant, so a later value never yields an earlier one. Telegram
-holds `secretToken` and can therefore post updates but cannot drain the mailbox; the
-`webhookId` in the public URL grants nothing at all. Only the device holds `channelId`.
-Verification is a forward hash and a constant-time compare.
+**Two entry points, one protocol.** `core.ts` is the protocol and knows nothing
+about where it runs. `worker.ts` stores a box in a Durable Object. `node.ts`
+stores it in memory, mirrored to one file per box. [BRIDGES.md](BRIDGES.md) has
+each bridge's contract and measured limits.
 
-## 6. Vendor survival
+## 4. The Receiver
 
-The code is identical across OEMs. What differs is the setup ritual, so the app ships
-a wizard that detects the manufacturer, deep-links the right settings intent (MIUI
-autostart, Samsung "Unrestricted", Huawei protected apps, Oppo/Vivo startup manager),
-and then **self-tests**: injects a synthetic message through the real pipeline and
-reports whether it survived to Telegram. The self-test is what makes it general — we
-verify instead of guessing per-vendor.
+Today, a library: `receiver/src/open.ts` opens a sealed message and checks that
+the id inside the seal matches the id it was delivered under. The screens, the
+key storage, pairing and collecting are not built.
 
-Nothing Phone 2 (Nothing OS, near-AOSP, dual nano-SIM) is the reference device and the
-easy case. Development must not target only it, or the app dies instantly on MIUI.
+The Receiver will be a web app at `pwa.easyotp.rhinocloud.ir` that works only
+once added to the home screen, and the same screens inside an Android shell
+(D15).
 
-## 7. Permissions
+## 5. Pairing
 
-`RECEIVE_SMS`, `READ_PHONE_STATE` (subscription info), `INTERNET`,
-`FOREGROUND_SERVICE` + `FOREGROUND_SERVICE_SPECIAL_USE`, `RECEIVE_BOOT_COMPLETED`,
-`POST_NOTIFICATIONS`, `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. Verified against the
-built APK, not just the manifest source.
+Not built. The design is D18: the Host shows eight digits, the person beside it
+reads them over a phone call, and both screens then show a picture that must
+match. Pairing gives the Host a Receiver's public key and box id.
 
-Notably **not** `READ_SMS`. `RECEIVE_SMS` alone delivers the broadcast; `READ_SMS`
-additionally grants the whole inbox content provider, which this app has no reason to
-touch. It is the single most alarming permission an SMS app can request, and not
-requesting it is worth more than the history feature it would enable.
+## 6. Updating without a new APK
 
-Later milestones add `SEND_SMS`, `READ_CALL_LOG`, `READ_PHONE_NUMBERS`, `CALL_PHONE`
-(USSD). Each is requested at the point of use, never up front — an OTP forwarder that
-asks for the world on first launch is indistinguishable from spyware.
+Not built. The design is D19: the Host's native core is fixed, and its screens
+and configuration arrive as signed files through the bridges.
 
-## 8. Milestones
+## 7. Surviving the phone's manufacturer
 
-**M1 — the spine.** Dual-SIM capture pinned to ICCID → encrypted outbox → transport
-racer → Worker → user's bot. Enrollment and on-device pairing. Heartbeat alerting.
-OEM wizard + self-test. This is the shippable product.
+Not built. The code is the same on every phone; what differs is the setup each
+manufacturer demands before it stops killing background services. The Host will
+detect the brand, open the right settings screen, and then send a test message
+through the real path to prove it worked.
 
-**M2 — control.** Long-poll command channel: send SMS per-SIM from Telegram, `/status`
-(battery, signal, network, queue depth), USSD (`/ussd *140#`) for balance and package
-checks. This turns monitoring into a remote hand on the device.
+## 8. Permissions
 
-**M3 — hygiene.** Sender rules engine (Iranian SIMs drown in marketing), missed-call
-notification per SIM, on-device searchable archive, SIM keep-alive scheduler for the
-inactivity-deactivation problem, remote config so rules change without a rebuild.
+`RECEIVE_SMS`, `READ_PHONE_STATE` (to identify the SIM), `INTERNET`,
+`FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SPECIAL_USE`,
+`RECEIVE_BOOT_COMPLETED`, `POST_NOTIFICATIONS`,
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+
+Not `READ_SMS`. `RECEIVE_SMS` delivers new messages; `READ_SMS` would also open
+the whole inbox, which the Host has no reason to touch. Not a notification
+listener and not accessibility.

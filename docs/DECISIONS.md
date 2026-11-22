@@ -273,6 +273,8 @@ joke.
 
 ## D11 — Dependency mirrors, and the supply-chain debt they create (2026-08-30)
 
+> **Amended 2026-11-23.** The mirror is removed: nothing is built outside CI any more (D20). Dependency verification is still owed before a release.
+
 **Chosen:** builds may resolve AndroidX and Gradle plugins through a third-party
 mirror, opt-in per machine via `EASYOTP_MIRRORS=true`. CI and unrestricted
 contributors use Google and Maven Central directly.
@@ -304,6 +306,8 @@ build is a development convenience and must never produce a shipped artifact.
 ---
 
 ## D12 — Hand-written SQLite for the outbox, not Room (2026-08-30)
+
+> **Still stands, and went further on 2026-11-23:** the Host now has no AndroidX dependency at all.
 
 **Chosen:** a single `SQLiteOpenHelper` and a small DAO, roughly 150 lines.
 
@@ -554,4 +558,32 @@ device set to Persian; a language switch is always reachable.
 **Why:** the person beside the Host reads Persian. The person holding the
 Receiver may read either. Adding a second language to finished screens costs
 more than building both from the first one.
+
+---
+
+## D23 — A box per Receiver, opened by a key the bridge never stores (2026-11-23)
+
+**Chosen:** the bridge protocol in ARCHITECTURE section 3. A Receiver makes a
+random `boxKey` and gives the Host `boxId`, a domain-separated SHA-256 of it. The id permits
+depositing; collecting and acknowledging need the key. A message stays at a
+bridge until acknowledged or 48 hours old.
+
+**Rejected:** accounts or registered devices on the bridge; removing a message
+when it is collected; the timestamp-and-replay-window check of the old relay.
+
+**Why:** a bridge that keeps no accounts cannot be breached for them, and one
+hash is enough to tell the Receiver from everyone else. Keeping a message until
+it is acknowledged means a Receiver that crashes mid-read loses nothing. The
+replay window existed to protect a relay that acted on what it opened. This one
+opens nothing, and a repeated deposit is stored once.
+
+**The cleartext id.** The Receiver needs an id to show a message once, and the
+bridge sees it. The Host derives it from a per-install salt and the outbox key,
+so it is stable across retries and bridges and unlinkable to the text by anyone
+else.
+
+**What this leaves open:** anyone who learns a Receiver's public key and box id
+can put a false message in front of it (THREAT-MODEL A5). Having the Host sign
+each message closes that, and is deferred until pairing exists to carry the
+Host's key.
 

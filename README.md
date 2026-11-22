@@ -25,10 +25,12 @@ own devices can read them.
 
 ### Status
 
-**This is not usable yet.** The capture, storage, sealing and failover code is
-written and tested, and CI builds a signed APK. No bridge is deployed, no
-Receiver exists, and nothing has run on a real phone. [`docs/STATUS.md`](docs/STATUS.md)
-has the detail.
+**This is not usable yet.** The Host captures, stores, seals and sends, the
+bridge holds and hands over sealed messages, and the Receiver's library opens
+them; each is tested, and CI builds a signed Host APK and the bridge image. No
+bridge is deployed, the Receiver has no screens, pairing is not built, and
+nothing has run on a real phone. [`docs/STATUS.md`](docs/STATUS.md) has the
+detail.
 
 ### What you install
 
@@ -80,14 +82,24 @@ would differ.
 [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) covers this in full, and
 [`docs/DECISIONS.md`](docs/DECISIONS.md) records each choice and what was rejected.
 
+### The repository
+
+| Directory | What it is |
+|---|---|
+| [`host/`](host) | The Host app's native core, in Kotlin |
+| [`bridge/`](bridge) | The bridge, in TypeScript: a Cloudflare Worker and a Node container from one protocol |
+| [`receiver/`](receiver) | The library that opens sealed messages |
+| [`docs/`](docs) | Architecture, decisions, threat model, bridges, status |
+
 ### Build
 
-GitHub Actions builds and signs every APK; see
+GitHub Actions builds and signs everything; see
 [`build.yml`](.github/workflows/build.yml). To run the tests yourself:
 
 ```sh
-./gradlew testDebugUnitTest      # Host, needs the Android SDK
-cd worker && npm ci && npm test  # bridge
+cd bridge && npm ci && npm test          # Workers runtime and Node
+cd receiver && npm ci && npm test
+./gradlew :host:testDebugUnitTest        # needs JDK 21 and the Android SDK
 ```
 
 A release APK is signed with a certificate whose SHA-256 is
@@ -114,10 +126,11 @@ publish their changes too.
 
 ### وضعیت
 
-**این برنامه هنوز قابل استفاده نیست.** بخش دریافت پیامک، ذخیره‌سازی، رمزنگاری و
-جابه‌جایی بین مسیرها نوشته و آزمایش شده است و نسخهۀ امضاشدهۀ برنامه به‌صورت
-خودکار ساخته می‌شود. هنوز هیچ پلی راه‌اندازی نشده، برنامهۀ گیرنده ساخته نشده
-و هیچ‌چیز روی گوشی واقعی اجرا نشده است. جزئیات در
+**این برنامه هنوز قابل استفاده نیست.** فرستنده پیامک را می‌گیرد، ذخیره و رمز می‌کند
+و می‌فرستد. پل بستهۀ رمزشده را نگه می‌دارد و تحویل می‌دهد. کتابخانهۀ گیرنده آن را
+باز می‌کند. هر سه بخش آزمایش شده‌اند و نسخهۀ امضاشدهۀ فرستنده و ایمیج پل
+به‌صورت خودکار ساخته می‌شوند. هنوز هیچ پلی راه‌اندازی نشده، گیرنده صفحه‌ای ندارد،
+جفت‌کردن ساخته نشده و هیچ‌چیز روی گوشی واقعی اجرا نشده است. جزئیات در
 [`docs/STATUS.md`](docs/STATUS.md) آمده است.
 
 ### چه چیزی نصب می‌کنید
@@ -125,7 +138,7 @@ publish their changes too.
 | | کجا | چه می‌کند |
 |---|---|---|
 | **فرستنده** (اندروید) | گوشی‌ای که سیم‌کارت‌ها در آن است | هر پیامک را می‌گیرد، برای گیرنده‌های شما رمز می‌کند و می‌فرستد |
-| **گیرنده** (وب‌اپ) | هر گوشی یا رایانه | پیام‌ها را نشان می‌دهد. یک بار آن را به صفحه‌ی اصلی اضافه می‌کنید |
+| **گیرنده** (وب‌اپ) | هر گوشی یا رایانه | پیام‌ها را نشان می‌دهد. یک بار آن را به صفحهۀ اصلی اضافه می‌کنید |
 | **گیرنده** (اندروید) | گوشی اندرویدی | همان صفحه‌ها، با اعلان خود اندروید. هیچ دسترسی‌ای به پیامک نمی‌خواهد |
 
 فرستنده یک بار نصب می‌شود. بعد از آن صفحه‌ها، متن‌ها و تنظیماتش خودشان به‌روز
@@ -165,11 +178,20 @@ publish their changes too.
 با گزینه‌هایی که کنار گذاشته شد، در [`docs/DECISIONS.md`](docs/DECISIONS.md) ثبت
 شده است. این دو سند فعلاً فقط به انگلیسی‌اند.
 
+### ساختار مخزن
+
+| پوشه | چیست |
+|---|---|
+| [`host/`](host) | هستهۀ برنامهۀ فرستنده، به زبان Kotlin |
+| [`bridge/`](bridge) | پل، به زبان TypeScript. یک پروتکل که هم روی Cloudflare Workers اجرا می‌شود و هم در یک کانتینر Node |
+| [`receiver/`](receiver) | کتابخانه‌ای که پیام رمزشده را باز می‌کند |
+| [`docs/`](docs) | معماری، تصمیم‌ها، مدل تهدید، پل‌ها و وضعیت |
+
 ### ساخت
 
-همهۀ نسخه‌ها را GitHub Actions می‌سازد و امضا می‌کند
-([`build.yml`](.github/workflows/build.yml)). اثر انگشت گواهی امضا در بخش انگلیسی
-همین صفحه آمده است.
+همه‌چیز را GitHub Actions می‌سازد و امضا می‌کند
+([`build.yml`](.github/workflows/build.yml)). دستورهای اجرای آزمون‌ها و اثر انگشت
+گواهی امضا در بخش انگلیسی همین صفحه آمده است.
 
 ### پروانه
 
