@@ -4,6 +4,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.concurrent.Callable
+import java.util.concurrent.ExecutorCompletionService
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -26,7 +27,9 @@ sealed class DepositResult {
  * All bridges at once, not one after another: a code is worthless after about a
  * minute, a deposit is under two kilobytes, and the Receiver shows each message
  * once however many bridges deliver it (DECISIONS D17). One bridge accepting is
- * enough for the message to count as sent.
+ * enough for the message to count as sent, and once one has, the rest get only a
+ * moment more: a filtered bridge that hangs must not hold every message behind
+ * it for the length of its timeout.
  *
  * HTTP is the platform client rather than OkHttp; the reasoning is DECISIONS D14.
  */
@@ -57,19 +60,35 @@ class BridgeClient(
             .toString()
             .toByteArray()
 
-        val tasks = health.all().map { bridge -> Callable { post(bridge, boxId, body) } }
-        val attempts = try {
-            pool.invokeAll(tasks, TOTAL_TIMEOUT_SECONDS, TimeUnit.SECONDS).map { future ->
-                // A task still running at the deadline comes back cancelled.
-                if (future.isCancelled) Attempt.Failed else runCatching { future.get() }.getOrDefault(Attempt.Failed)
+        val bridges = health.all()
+        val completion = ExecutorCompletionService<Attempt>(pool)
+        bridges.forEach { bridge -> completion.submit(Callable { post(bridge, boxId, body) }) }
+
+        val attempts = mutableListOf<Attempt>()
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TOTAL_TIMEOUT_SECONDS)
+        try {
+            while (attempts.size < bridges.size) {
+                val remaining = deadline - System.nanoTime()
+                if (remaining <= 0) break
+                val finished = completion.poll(remaining, TimeUnit.NANOSECONDS) ?: break
+                val attempt = runCatching { finished.get() }.getOrDefault(Attempt.Failed)
+                attempts += attempt
+                if (attempt is Attempt.Accepted) {
+                    // Posts still running are left to finish on their own
+                    // threads, and still record what they learn about a bridge.
+                    val grace = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(GRACE_AFTER_ACCEPT_MILLIS)
+                    deadline = minOf(deadline, grace)
+                }
             }
         } catch (e: InterruptedException) {
             Thread.currentThread().interrupt()
             return DepositResult.Unreachable
         }
 
-        val accepted = attempts.filterIsInstance<Attempt.Accepted>().map { it.bridgeId }
-        if (accepted.isNotEmpty()) return DepositResult.Accepted(accepted)
+        val accepted = attempts.filterIsInstance<Attempt.Accepted>().map { it.bridgeId }.toSet()
+        if (accepted.isNotEmpty()) {
+            return DepositResult.Accepted(bridges.map { it.id }.filter { it in accepted })
+        }
         // A refusal is a bridge's verdict on the message, which every bridge
         // would repeat. It outranks a timeout, because it means stop retrying.
         val refused = attempts.filterIsInstance<Attempt.Refused>().firstOrNull()
@@ -97,18 +116,18 @@ class BridgeClient(
                 health.record(bridge.id, success = true, latencyMillis = elapsed, now = clock())
                 Attempt.Accepted(bridge.id)
             } else {
-                // A 5xx is the bridge failing, and that includes a bridge that
-                // is full (507). A 4xx is the message being refused. Only the
-                // former counts against the bridge: otherwise one malformed
-                // message would mark every healthy bridge as broken.
-                val bridgeFailure = code >= 500
-                health.record(bridge.id, success = !bridgeFailure, latencyMillis = elapsed, now = clock())
-                if (bridgeFailure) {
-                    Attempt.Failed
+                // Only a refusal the bridge itself wrote is the message's
+                // fault. Everything else is the bridge failing: a 5xx, a full
+                // bridge (507), and also a 403 or 404 from whatever stands in
+                // front of it. Counting those as healthy would hide a bridge
+                // that has delivered nothing for days.
+                val refusal = if (code in 400..499) {
+                    refusalOf(connection.errorStream?.use { it.readBytes().decodeToString() }.orEmpty())
                 } else {
-                    val payload = connection.errorStream?.use { it.readBytes().decodeToString() }.orEmpty()
-                    Attempt.Refused(reasonOf(payload, code))
+                    null
                 }
+                health.record(bridge.id, success = refusal != null, latencyMillis = elapsed, now = clock())
+                if (refusal != null) Attempt.Refused(refusal) else Attempt.Failed
             }
         } catch (e: Exception) {
             health.record(bridge.id, success = false, latencyMillis = clock() - started, now = clock())
@@ -119,14 +138,14 @@ class BridgeClient(
     }
 
     /**
-     * Extracts the bridge's machine-readable reason code.
+     * The bridge's own reason for refusing a message, or null if the answer
+     * did not come from the bridge.
      *
-     * Only the known `error` field, never free text: this value is written to
-     * the outbox and to the log (THREAT-MODEL rule 1).
+     * Only a code from the known list, never free text: this value is written
+     * to the outbox and to the log (THREAT-MODEL rule 1).
      */
-    private fun reasonOf(payload: String, code: Int): String =
-        runCatching { JSONObject(payload).optString("error").takeIf { it.matches(REASON_SHAPE) } }
-            .getOrNull() ?: "http_$code"
+    private fun refusalOf(payload: String): String? =
+        runCatching { JSONObject(payload).optString("error").takeIf { it in MESSAGE_REFUSALS } }.getOrNull()
 
     companion object {
         /**
@@ -137,6 +156,9 @@ class BridgeClient(
         private const val CONNECT_TIMEOUT_MILLIS = 8_000
         private const val READ_TIMEOUT_MILLIS = 15_000
         private const val TOTAL_TIMEOUT_SECONDS = 25L
-        private val REASON_SHAPE = Regex("[a-z0-9_]{1,40}")
+        private const val GRACE_AFTER_ACCEPT_MILLIS = 1_500L
+
+        /** What bridge/src/core.ts answers when the message itself is at fault. */
+        private val MESSAGE_REFUSALS = setOf("malformed", "too_large", "unsupported_version")
     }
 }

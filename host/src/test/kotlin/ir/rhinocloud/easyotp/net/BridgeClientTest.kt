@@ -2,7 +2,6 @@ package ir.rhinocloud.easyotp.net
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -58,7 +57,11 @@ class BridgeClientTest {
 
     private class Harness(val client: BridgeClient, val health: BridgeHealth, val opened: List<FakeConnection>)
 
-    private fun harness(vararg responses: Pair<Bridge, Spec>): Harness {
+    private fun harness(
+        vararg responses: Pair<Bridge, Spec>,
+        slow: Bridge? = null,
+        slowMillis: Long = 0,
+    ): Harness {
         val byBase = responses.associate { it.first.baseUrl to it.second }
         val health = BridgeHealth(responses.map { it.first })
         val opened = CopyOnWriteArrayList<FakeConnection>()
@@ -66,6 +69,7 @@ class BridgeClientTest {
             health = health,
             clock = { NOW },
             open = { url ->
+                if (slow != null && url.startsWith(slow.baseUrl)) Thread.sleep(slowMillis)
                 val spec = byBase.entries.first { url.startsWith(it.key) }.value
                 FakeConnection(url, spec.code, spec.body, spec.fails).also { opened += it }
             },
@@ -149,16 +153,30 @@ class BridgeClientTest {
     }
 
     @Test
-    fun `an error body that is not a reason code yields a safe one`() {
-        // The reason is written to the outbox and the log, so it must never be
-        // free text from the other end.
-        val notJson = harness(cf to Spec(418, "not json at all"))
-        assertEquals(DepositResult.Rejected("http_418"), notJson.deposit())
+    fun `a 4xx that the bridge did not write is the bridge failing`() {
+        // A CDN's block page or a misrouted 404 says nothing about the message.
+        // Treating it as a refusal would give up on a deliverable message, and
+        // counting it as healthy would hide a bridge that delivers nothing.
+        val blocked = harness(cf to Spec(403, "<html>Access denied</html>"), ir to Spec(404, "{}"))
+        repeat(5) { assertEquals(DepositResult.Unreachable, blocked.deposit()) }
+        assertTrue(blocked.health.snapshot().none { it.healthy })
+    }
 
+    @Test
+    fun `text from the other end never becomes a reason`() {
+        // The reason is written to the outbox and the log, so only the
+        // bridge's own short codes are ever accepted as one.
         val freeText = harness(cf to Spec(400, """{"error":"Your code is 4821"}"""))
-        val result = freeText.deposit() as DepositResult.Rejected
-        assertEquals("http_400", result.reason)
-        assertFalse(result.reason.contains("4821"))
+        assertEquals(DepositResult.Unreachable, freeText.deposit())
+    }
+
+    @Test
+    fun `a bridge that hangs does not hold up a message another bridge accepted`() {
+        val h = harness(cf to Spec(), ir to Spec(), slow = ir, slowMillis = 4_000)
+        val started = System.nanoTime()
+        assertEquals(DepositResult.Accepted(listOf("cf")), h.deposit())
+        val tookMillis = (System.nanoTime() - started) / 1_000_000
+        assertTrue("waited $tookMillis ms for the slow bridge", tookMillis < 3_000)
     }
 
     private companion object {
