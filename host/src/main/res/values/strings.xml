@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">EasyOTP Host</string>
+    <string name="placeholder">EasyOTP Host is installed. Setup is not available in this build yet.</string>
+    <string name="notification_channel">Forwarding</string>
+    <string name="notification_idle">Watching for messages</string>
+    <string name="notification_pending">%1$d waiting to send</string>
+</resources>

@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">ایزی‌اوتی‌پی فرستنده</string>
+    <string name="placeholder">فرستنده نصب شده است. راه‌اندازی هنوز در این نسخه در دسترس نیست.</string>
+    <string name="notification_channel">ارسال پیامک‌ها</string>
+    <string name="notification_idle">در انتظار پیامک</string>
+    <string name="notification_pending">%1$d پیام در صف ارسال</string>
+</resources>
