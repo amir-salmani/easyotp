@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run && npm run test:node",
     "build:node": "esbuild src/node.ts --bundle --platform=node --target=node22 --format=esm --outfile=dist/node.mjs",
-    "test:node": "npm run build:node && node --test test-node/"
+    "test:node": "npm run build:node && node --test test-node/node.test.mjs"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "^1.9.0",

@@ -37,7 +37,7 @@ class PayloadTest {
         val json = JSONObject(String(Payload("i".repeat(32), "sim", "from", "hello", null, 1L).encode()))
         assertTrue(json.has("code"))
         assertTrue(json.isNull("code"))
-        assertEquals(setOf("v", "id", "sim", "from", "body", "code", "at"), json.keySet())
+        assertEquals(setOf("v", "id", "sim", "from", "body", "code", "at"), json.keys().asSequence().toSet())
         assertEquals(2, json.getInt("v"))
     }
 

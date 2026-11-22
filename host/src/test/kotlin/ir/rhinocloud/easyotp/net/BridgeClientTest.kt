@@ -89,7 +89,7 @@ class BridgeClientTest {
         val connection = h.opened.single()
         assertEquals("https://bridge.example.com/v2/box/$boxId", connection.url.toString())
         val body = JSONObject(connection.sent.toString())
-        assertEquals(setOf("v", "id", "enc", "ct"), body.keySet())
+        assertEquals(setOf("v", "id", "enc", "ct"), body.keys().asSequence().toSet())
         assertEquals(2, body.getInt("v"))
         assertEquals(messageId, body.getString("id"))
         assertEquals(ReceiverSealer.base64UrlEncode(sealed.enc), body.getString("enc"))
