@@ -587,3 +587,64 @@ can put a false message in front of it (THREAT-MODEL A5). Having the Host sign
 each message closes that, and is deferred until pairing exists to carry the
 Host's key.
 
+---
+
+## D24 — Pairing: commit, offer, reveal, then a picture out of 512 (2026-11-23)
+
+**Chosen:** the exchange behind D18. The code read over the phone only names
+where the two devices meet on the bridges. Three messages follow:
+
+| # | From | Carries |
+|---|---|---|
+| 1 | Host | a commitment (the hash of a nonce it has not shown yet) and a one-time public key |
+| 2 | Receiver | sealed to that one-time key: its public key, its box id, its name, a nonce of its own |
+| 3 | Host | the nonce it committed to, its name, and which offer it is answering |
+
+Both then show a hash of the code, both nonces, the public key, the box id, the
+one-time key and both names, as one of 8 colours and one of 64 things, named in
+Persian and English.
+
+**Rejected:** a picture computed from the code and the key alone; treating the
+eight digits as a secret; a password-authenticated key exchange.
+
+**Why:** a bridge carries all three messages and could swap in its own key. A
+picture computed only from things the bridge can see would let it try keys
+until its picture matched. The order closes that: the swap has to happen at
+message 2, before the Host's nonce exists outside the Host, and the Receiver
+will not accept a different nonce at message 3 because it already holds the
+commitment. So a bridge gets one blind try, and a miss is two people looking at
+different pictures.
+
+The eight digits are not secret from a bridge, which can try all hundred
+million against the slot id. Nothing rests on them. A password-authenticated
+exchange would make them count, at the price of a second cryptographic
+construction in two languages; the picture gives the property with a hash.
+
+**The Receiver's key stays between the two devices.** HPKE base mode lets
+anyone who knows a Receiver's public key seal a message that opens on it, so a
+bridge that saw the key at pairing could forge an SMS for ever after. The offer
+is therefore sealed to the Host's one-time key. A bridge can replace that key
+with its own to read the offer, but the one-time key is in the picture, so
+reading costs the same one blind try as swapping. The first version of this
+exchange sent the offer in the clear; a review caught it before any phone was
+paired.
+
+**Names are in the picture** because they are shown beside the confirm button,
+and a bridge that could rewrite one could write instructions there.
+
+**A code is used once.** The slot it names keeps an attempt's messages for ten
+minutes, so the Receiver clears the code after any failure and the reveal names
+the offer it answers.
+
+**The cost, stated:** one try in 512. That is weaker than the six-digit
+comparisons other products use, and it was chosen because what is compared is
+said aloud by people who may be elderly, in two languages: a colour and a thing
+is the most that survives a phone call. Each failed try is visible to both
+people and ends the pairing.
+
+**The lists are protocol.** The order of the colours and the things is fixed in
+`receiver/src/pictures.ts`. An entry may be reworded, never moved.
+
+**Built:** the Receiver's side, and the Host's side in TypeScript for the tests
+and the stand-in Host. **Not built:** the Host app's side in Kotlin.
+

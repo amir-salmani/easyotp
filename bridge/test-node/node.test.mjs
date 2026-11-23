@@ -98,3 +98,19 @@ test("refuses an oversized request before reading it all", async () => {
     await stop(child);
   }
 });
+
+test("carries pairing messages between two sides", async () => {
+  const child = await start();
+  try {
+    const url = `${BASE}/v2/pair/${b64url(randomBytes(32))}`;
+    assert.deepEqual(await (await fetch(`${url}?after=0`)).json(), { epoch: 0, messages: [] }, "a read makes no slot");
+    assert.equal((await (await post(url, { v: 2, from: "host", data: "Y29tbWl0" })).json()).seq, 1);
+    const waiting = fetch(`${url}?after=1`).then((r) => r.json());
+    assert.equal((await (await post(url, { v: 2, from: "receiver", data: "b2ZmZXI" })).json()).seq, 2);
+    const got = await waiting;
+    assert.deepEqual(got.messages, [{ seq: 2, from: "receiver", data: "b2ZmZXI" }]);
+    assert.ok(got.epoch > 0);
+  } finally {
+    await stop(child);
+  }
+});

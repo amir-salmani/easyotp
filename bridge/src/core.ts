@@ -9,16 +9,28 @@
  *   POST /v2/box/<boxId>        deposit one sealed message      (the Host)
  *   GET  /v2/box/<boxId>        collect, waiting if empty       (the Receiver)
  *   POST /v2/box/<boxId>/ack    acknowledge collected messages  (the Receiver)
+ *   POST /v2/pair/<slotId>      add a pairing message           (either side)
+ *   GET  /v2/pair/<slotId>      read pairing messages, waiting  (either side)
  *   GET  /health
  */
 import { LIMITS, type Sealed } from "./box";
 import { boxIdFrom, KEY_SHAPE, timingSafeEqual } from "./ids";
 import { boxTag, log } from "./log";
+import { SLOT_LIMITS, type SlotView } from "./slot";
 
 export interface BoxStore {
   deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full">;
   collect(boxId: string, holdMs: number): Promise<Sealed[]>;
   ack(boxId: string, ids: string[]): Promise<number>;
+}
+
+export interface PairStore {
+  post(slotId: string, from: "host" | "receiver", data: string): Promise<number | "full">;
+  read(slotId: string, after: number, holdMs: number): Promise<SlotView>;
+}
+
+export interface Store extends BoxStore {
+  pair: PairStore;
 }
 
 export interface Config {
@@ -45,7 +57,7 @@ const HEADERS = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 
-const reject = (route: "deposit" | "collect" | "ack", reason: string, status: number, boxId?: string) => {
+const reject = (route: "deposit" | "collect" | "ack" | "pair", reason: string, status: number, boxId?: string) => {
   log({ route, outcome: "rejected", reason, status, box: boxId && boxTag(boxId) });
   return json({ error: reason }, status);
 };
@@ -120,16 +132,47 @@ async function ack(req: Request, store: BoxStore, boxId: string): Promise<Respon
   return json({ ok: true, removed });
 }
 
-export async function handle(req: Request, store: BoxStore, cfg: Config): Promise<Response> {
+/**
+ * Pairing messages. No key: the slot id comes from a code read aloud, and
+ * nothing here is trusted until two people have compared a picture.
+ */
+async function pairPost(req: Request, store: PairStore, slotId: string): Promise<Response> {
+  const body = await readJson(req);
+  if (body === "too_large") return reject("pair", "too_large", 413);
+  if (body === "malformed" || typeof body !== "object" || body === null) return reject("pair", "malformed", 400);
+  const { v, from, data } = body as Record<string, unknown>;
+  if (v !== 2) return reject("pair", "unsupported_version", 400);
+  if ((from !== "host" && from !== "receiver") || typeof data !== "string" || !B64URL.test(data)) {
+    return reject("pair", "malformed", 400);
+  }
+  if (data.length > SLOT_LIMITS.maxDataBytes) return reject("pair", "too_large", 413);
+  const seq = await store.post(slotId, from, data);
+  if (seq === "full") {
+    log({ route: "pair", outcome: "full", status: 409 });
+    return json({ error: "slot_full" }, 409);
+  }
+  log({ route: "pair", outcome: "ok", n: seq });
+  return json({ ok: true, seq });
+}
+
+async function pairRead(req: Request, store: PairStore, cfg: Config, slotId: string): Promise<Response> {
+  const after = Number(new URL(req.url).searchParams.get("after") ?? 0);
+  if (!Number.isInteger(after) || after < 0 || after > SLOT_LIMITS.maxMessages) return reject("pair", "malformed", 400);
+  // The epoch tells a reader when the slot it was following has been replaced,
+  // so it starts again from the first message instead of waiting for one that
+  // will never be numbered high enough.
+  return json(await store.read(slotId, after, cfg.pollHoldMs));
+}
+
+export async function handle(req: Request, store: Store, cfg: Config): Promise<Response> {
   const path = new URL(req.url).pathname;
 
   // Asked by every Host about every bridge. Must depend on nothing.
   if (path === "/health") return json({ ok: true });
 
+  const pair = path.match(/^\/v2\/pair\/([A-Za-z0-9_-]{43})$/);
   const box = path.match(/^\/v2\/box\/([A-Za-z0-9_-]{43})(\/ack)?$/);
-  if (!box) return json({ error: "not_found" }, 404);
-  const boxId = box[1]!;
-  const isAck = box[2] !== undefined;
+  if (!box && !pair) return json({ error: "not_found" }, 404);
 
   if (req.method === "OPTIONS") {
     return new Response(null, {
@@ -142,6 +185,14 @@ export async function handle(req: Request, store: BoxStore, cfg: Config): Promis
       },
     });
   }
+  if (pair) {
+    if (req.method === "POST") return pairPost(req, store.pair, pair[1]!);
+    if (req.method === "GET") return pairRead(req, store.pair, cfg, pair[1]!);
+    return json({ error: "method_not_allowed" }, 405);
+  }
+  const boxId = box![1]!;
+  const isAck = box![2] !== undefined;
+
   if (req.method === "POST" && isAck) return ack(req, store, boxId);
   if (req.method === "POST") return deposit(req, store, boxId);
   if (req.method === "GET" && !isAck) return collect(req, store, cfg, boxId);

@@ -4,10 +4,12 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { Box, LIMITS, type Sealed } from "./box";
-import { handle, type BoxStore } from "./core";
+import { handle, type Store } from "./core";
+import { readNothing, Slot, type SlotView } from "./slot";
 
 export interface Env {
   BOX: DurableObjectNamespace<BoxObject>;
+  PAIR: DurableObjectNamespace<PairObject>;
   POLL_HOLD_SECONDS: string;
 }
 
@@ -61,12 +63,46 @@ export class BoxObject extends DurableObject<Env> {
   }
 }
 
-function storeFor(env: Env): BoxStore {
+/**
+ * One pairing slot. Memory only, on purpose: a slot lives ten minutes, and if
+ * this object is evicted mid-pairing the two people simply start again.
+ */
+export class PairObject extends DurableObject<Env> {
+  private slot: Slot | undefined;
+
+  private live(): Slot | undefined {
+    if (this.slot?.expired(Date.now())) this.slot = undefined;
+    return this.slot;
+  }
+
+  async post(from: "host" | "receiver", data: string): Promise<number | "full"> {
+    this.slot = this.live() ?? new Slot(Date.now());
+    return this.slot.post(from, data);
+  }
+
+  /**
+   * A read needs no key, so anyone can ask about any id, and a held request is
+   * billed time here. A slot nobody has posted to is answered after a short
+   * wait and leaves nothing behind.
+   */
+  async read(after: number, holdMs: number): Promise<SlotView> {
+    const slot = this.live();
+    if (!slot) return readNothing(holdMs);
+    return { epoch: slot.createdAt, messages: await slot.read(after, holdMs) };
+  }
+}
+
+function storeFor(env: Env): Store {
   const stub = (boxId: string) => env.BOX.get(env.BOX.idFromName(boxId));
+  const pairStub = (slotId: string) => env.PAIR.get(env.PAIR.idFromName(slotId));
   return {
     deposit: (boxId, m) => stub(boxId).deposit(m),
     collect: (boxId, holdMs) => stub(boxId).collect(holdMs),
     ack: (boxId, ids) => stub(boxId).ack(ids),
+    pair: {
+      post: (slotId, from, data) => pairStub(slotId).post(from, data),
+      read: (slotId, after, holdMs) => pairStub(slotId).read(after, holdMs),
+    },
   };
 }
 

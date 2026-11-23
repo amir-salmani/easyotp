@@ -16,14 +16,13 @@ the Host sends through all of them and the Receiver collects from all of them.
 
 | # | Name | Runs as | In front of it | State |
 |---|---|---|---|---|
-| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers over HTTPS; the bridge image is not deployed |
-| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Not deployed |
+| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | Live since 2026-11-23 |
+| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Live since 2026-11-23 |
 
-Bridge 1's name is settled: ArvanCloud issued a certificate for
-`*.arsalan.finlawgpt.ir`, which covers it. Bridge 2's is not. It is two levels
-below its zone, and Cloudflare's free certificate covers one; if it fails its
-certificate check it moves up a level, and the seed list in `Settings.kt`
-changes with it.
+Both names are settled. Each is two levels below its zone, which a CDN's
+ordinary free certificate does not cover, but ArvanCloud issued one for
+`*.arsalan.finlawgpt.ir` and Cloudflare issues one for a Worker's custom domain
+by name.
 
 ## Bridge 1: the container
 
@@ -46,14 +45,17 @@ Logs go to stdout, one line per event, and never carry a message or a key.
 `node.ts` keeps its own total under `MAX_TOTAL_BYTES` (128 MB by default) and
 answers `507` to deposits past it, so the 256 MB limit is never approached.
 
-**Deploying.** CI pushes `ghcr.io/amir-salmani/easyotp-bridge`. The tag `live`
+**Deploying.** Moving the tag `live` is the whole deploy. CI pushes `ghcr.io/amir-salmani/easyotp-bridge`. The tag `live`
 moves only on a push to `main`. The host asks the registry every 15 minutes and
 restarts the container when `live` points at a new image; a start counts only
 once `/health` answers. Nobody logs in to deploy, and this repository's sessions
-never touch that host.
+never touch that host. Rolling back to the previous image when a new one never
+becomes healthy is designed there and has not been seen working. A change to the
+contract is asked for as an issue on the host's own repository, never built into
+the image.
 
 **Measured in the path** (2026-11-23, through ArvanCloud's edge over HTTPS, to
-the stand-in):
+the stand-in that held the place before the image):
 
 | Check | Result |
 |---|---|
@@ -68,7 +70,9 @@ certificate is still the origin's internal one, which the CDN accepts.
 
 ## Bridge 2: the Worker
 
-`wrangler deploy` from `bridge/`. One Durable Object per box, SQLite-backed,
+`wrangler deploy` from `bridge/`, by hand; CI does not deploy it. The
+certificate for a new custom domain took about five minutes to appear, and the
+name failed its TLS handshake until then. One Durable Object per box, SQLite-backed,
 which is the kind the free plan runs. It answers only on its own name;
 `workers.dev` is off, because that domain is filtered in Iran.
 

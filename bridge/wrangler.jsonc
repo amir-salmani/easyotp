@@ -13,9 +13,15 @@
   // One Durable Object per box, holding sealed messages until they are
   // collected (D16). SQLite-backed, which is the only kind the free plan runs.
   "durable_objects": {
-    "bindings": [{ "name": "BOX", "class_name": "BoxObject" }]
+    "bindings": [
+      { "name": "BOX", "class_name": "BoxObject" },
+      { "name": "PAIR", "class_name": "PairObject" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["BoxObject"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["BoxObject"] },
+    { "tag": "v2", "new_sqlite_classes": ["PairObject"] }
+  ],
 
   "observability": { "enabled": true },
 

@@ -7,8 +7,9 @@
  * (DECISIONS D16).
  *
  * Base mode is public-key encryption: anyone who knows the public key can seal
- * a message that opens here. What makes a message trustworthy is that only a
- * paired Host was ever told this Receiver's public key and box id.
+ * a message that opens here. So the public key is treated as a secret between
+ * this Receiver and its Hosts: at pairing it travels sealed, and a bridge only
+ * ever learns the box id (DECISIONS D24, THREAT-MODEL A5).
  */
 import { CipherSuite, DhkemX25519HkdfSha256, HkdfSha256 } from "@hpke/core";
 import { Chacha20Poly1305 } from "@hpke/chacha20poly1305";
@@ -68,7 +69,8 @@ function isMessage(x: unknown): x is Message {
     typeof m.from === "string" &&
     typeof m.body === "string" &&
     (m.code === null || typeof m.code === "string") &&
-    typeof m.at === "number"
+    // A time a Date cannot hold would throw wherever it is shown.
+    typeof m.at === "number" && Number.isFinite(m.at) && Math.abs(m.at) <= 8.64e15
   );
 }
 
@@ -80,17 +82,7 @@ function isMessage(x: unknown): x is Message {
  *   and have it shown a second time.
  */
 export async function open(privateKey: string, envelopeId: string, enc: string, ct: string): Promise<Message> {
-  let plaintext: ArrayBuffer;
-  try {
-    const recipient = await suite.createRecipientContext({
-      recipientKey: await suite.kem.deserializePrivateKey(buffer(privateKey)),
-      enc: buffer(enc),
-    });
-    plaintext = await recipient.open(buffer(ct));
-  } catch {
-    // Deliberately says nothing more: a detailed failure is a decryption oracle.
-    throw new OpenError("could not open");
-  }
+  const plaintext = await openBytes(privateKey, enc, ct);
   let message: unknown;
   try {
     message = JSON.parse(new TextDecoder().decode(plaintext));
@@ -102,11 +94,27 @@ export async function open(privateKey: string, envelopeId: string, enc: string, 
   return message;
 }
 
-/** For tests and for a Receiver that sends itself a test message. */
-export async function seal(publicKey: string, message: Message): Promise<{ enc: string; ct: string }> {
+/** Opens sealed bytes. Says nothing about why it failed: a detailed failure is a decryption oracle. */
+export async function openBytes(privateKey: string, enc: string, ct: string): Promise<Uint8Array> {
+  try {
+    const recipient = await suite.createRecipientContext({
+      recipientKey: await suite.kem.deserializePrivateKey(buffer(privateKey)),
+      enc: buffer(enc),
+    });
+    return new Uint8Array(await recipient.open(buffer(ct)));
+  } catch {
+    throw new OpenError("could not open");
+  }
+}
+
+/** Seals bytes to a public key. */
+export async function sealBytes(publicKey: string, plaintext: Uint8Array): Promise<{ enc: string; ct: string }> {
   const sender = await suite.createSenderContext({
     recipientPublicKey: await suite.kem.deserializePublicKey(buffer(publicKey)),
   });
-  const ct = await sender.seal(new TextEncoder().encode(JSON.stringify(message)).buffer as ArrayBuffer);
+  const ct = await sender.seal(plaintext.slice().buffer as ArrayBuffer);
   return { enc: b64url(new Uint8Array(sender.enc)), ct: b64url(new Uint8Array(ct)) };
 }
+
+/** What a Host does to a message. Here for the tests and the stand-in Host. */
+export const seal = (publicKey: string, message: Message) => sealBytes(publicKey, new TextEncoder().encode(JSON.stringify(message)));

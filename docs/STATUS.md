@@ -27,26 +27,27 @@ screen.** That is still the most important fact on this page.
 | Bridge | Deposit, collect with hold, acknowledge, expiry, limits, key-only access | Tests on the Workers runtime and on Node |
 | Bridge image | Runs unprivileged, read-only, 256 MB, clean exit on SIGTERM | CI runs it that way before publishing |
 | Receiver library | Opens a sealed message, refuses a changed or re-labelled one | Unit tests |
+| Pairing | Receiver's side, and the Host's side in TypeScript. The Receiver's key travels sealed. A bridge that swaps the key, reads it, renames a side or changes the nonce is caught | Unit tests against the real bridge code |
+| Receiver web app | Install gate, pairing, messages shown once, copy, Persian and English | A browser test against two local bridges: `npm run e2e` |
 | Host to Receiver | A message sealed by the Host's code opens in the Receiver's code | Fixture regenerated in CI every run |
 | Build | Signed Host APK and bridge image from GitHub Actions | `build.yml` |
 
 ## 2. Not built
 
-- The Receiver's screens, key storage and collecting, in either form (D15).
-- Pairing (D18). Until it exists nothing can put a Receiver into the Host.
+- **The Host app's side of pairing, and any Host screen.** Until then no real phone can be paired; `npm run fake-host` stands in.
+- Web push, so a closed Receiver is woken by a new message.
+- The Receiver APK.
 - The Host's screens, wizard, health checks and self-test (D19, ARCHITECTURE 7).
 - The signed bundle and config loader, and the signed bridge list (D17, D19).
 - Heartbeat with battery and charger state.
 - The dormant self-update (D19).
-- The Receiver APK.
 
 ## 3. Deployed
 
 | Thing | State |
 |---|---|
-| Bridge 1's place | A stand-in answers through ArvanCloud over HTTPS with a valid certificate |
-| Bridge 1's image | Published privately by CI under the tags `dev` and `sha-…`. `live` does not exist until `main` builds |
-| Bridge 2 | Not deployed |
+| Bridge 1 | Live, running the `live` image (14 MB of its 256 MB). A deposit, a refused collect without the key, a collect, an acknowledge and a 55 s empty hold were run against it through ArvanCloud |
+| Bridge 2 | Live. A deposit, a refused collect without the key, a collect, an acknowledge and a 25 s empty hold were run against it |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
 | A release | None. No tag has been cut |
 
@@ -54,20 +55,20 @@ screen.** That is still the most important fact on this page.
 
 1. ~~Actions builds and signs the Host APK.~~ Done.
 2. ~~One repository, three parts; Telegram removed; the new bridge protocol.~~ Done.
-3. Bridge 2 deployed; Receiver web app with pairing; a real SMS arrives.
+3. ~~Bridge 2 deployed; Receiver web app with pairing.~~ Done. Next: the Host app's pairing and first screens, then a real SMS on a real phone.
 4. Signed bundle and config, proven by changing a screen without a new APK.
 5. Wizard, health checks, heartbeat.
-6. Bridge 1's image goes `live`.
+6. ~~Bridge 1's image goes `live`.~~ Done.
 7. Receiver APK.
 
 ## 5. Open debts
 
 | Debt | Why it matters | When |
 |---|---|---|
-| Bridge 2's name not final | It is two levels below its zone and may fail its certificate check. An installed phone starts from the names compiled in. Bridge 1's name is confirmed | Before the first release |
 | Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first release |
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message | With pairing |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
+| The service worker is not exercised by any test | The browser test runs a development build, which registers none. Opening offline was checked by reading only | With the first production browser test |
 | No rate limit on deposit | A known box id can be flooded until its oldest messages fall out | With bridge 2's deploy |
 | SIM identity on Android 10+ | An ordinary app gets an empty ICCID there, so the route is keyed by subscription id. That it stays with its SIM across reboots and re-insertion is assumed, not seen | Step 3, on a dual-SIM phone |
 | No automated test of the outbox, the drain loop or the settings store | They need Android's SQLite and Keystore. Retry timing, dead rows and the unreadable-settings guard are checked by reading only | With the first on-device test run |

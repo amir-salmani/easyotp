@@ -11,7 +11,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { Box, type Sealed } from "./box";
-import { handle, type BoxStore } from "./core";
+import { handle, type BoxStore, type PairStore, type Store } from "./core";
+import { Slots } from "./slot";
 import { KEY_SHAPE } from "./ids";
 import { log } from "./log";
 
@@ -157,6 +158,17 @@ export class FileStore implements BoxStore {
   }
 }
 
+/** Pairing slots, in memory. A restart ends any pairing in progress. */
+const MAX_SLOTS = 2000;
+
+export function pairStore(): PairStore {
+  const slots = new Slots(MAX_SLOTS);
+  return {
+    post: async (slotId, from, data) => slots.post(slotId, from, data, Date.now()),
+    read: (slotId, after, holdMs) => slots.read(slotId, after, holdMs, Date.now()),
+  };
+}
+
 /** Reads a request body, giving up as soon as it is larger than allowed. */
 function readBody(req: IncomingMessage): Promise<Buffer | null> {
   return new Promise((resolve, reject) => {
@@ -176,7 +188,7 @@ function readBody(req: IncomingMessage): Promise<Buffer | null> {
   });
 }
 
-export function serve(store: BoxStore, pollHoldMs: number) {
+export function serve(store: Store, pollHoldMs: number) {
   return createServer(async (req: IncomingMessage, res: ServerResponse) => {
     try {
       const hasBody = req.method !== "GET" && req.method !== "HEAD" && req.method !== "OPTIONS";
@@ -203,7 +215,7 @@ export function serve(store: BoxStore, pollHoldMs: number) {
 
 if (process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop()!)) {
   const store = new FileStore(DATA_DIR, MAX_TOTAL_BYTES);
-  const server = serve(store, POLL_HOLD_MS);
+  const server = serve(Object.assign(store, { pair: pairStore() }), POLL_HOLD_MS);
   const sweeper = setInterval(() => store.sweep(Date.now()), SWEEP_MS);
   server.listen(PORT, HOST, () => console.log(JSON.stringify({ t: Date.now(), listening: `${HOST}:${PORT}` })));
   process.on("SIGTERM", () => {
