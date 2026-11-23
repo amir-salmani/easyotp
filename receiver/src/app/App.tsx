@@ -1,30 +1,28 @@
-import { Languages } from "lucide-react";
+import { Languages, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
+import { randomKey } from "../ids";
 import { watch } from "../inbox";
-import type { Message } from "../open";
-import { Db, type StoredIdentity } from "./db";
+import { Db, type PairedHost, type StoredMessage } from "./db";
 import { STRINGS, type Lang } from "./i18n";
 import { Install, isInstalled } from "./Install";
 import { Messages } from "./Messages";
 import { Pair } from "./Pair";
+import { Panel } from "./Panel";
 import { Alert, Screen } from "./ui";
-
-interface Ready {
-  db: Db;
-  identity: StoredIdentity;
-}
 
 /** A development build may be opened in a tab with ?preview. A released one never. */
 const gateOpen = () => isInstalled() || (import.meta.env.DEV && new URLSearchParams(location.search).has("preview"));
 
 export function App() {
   const [lang, setLang] = useState<Lang>("fa");
-  const [ready, setReady] = useState<Ready | null>(null);
+  const [db, setDb] = useState<Db | null>(null);
   const [failed, setFailed] = useState(false);
-  const [hosts, setHosts] = useState(0);
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [hosts, setHosts] = useState<PairedHost[]>([]);
+  const [messages, setMessages] = useState<StoredMessage[]>([]);
   const [pairing, setPairing] = useState(false);
+  const [panel, setPanel] = useState(false);
+  /** "<host id> <bridge>" to whether that bridge last answered for that Host. */
   const [up, setUp] = useState<Record<string, boolean>>({});
   const langRef = useRef(lang);
   langRef.current = lang;
@@ -38,34 +36,46 @@ export function App() {
   useEffect(() => {
     if (!gateOpen()) return;
     (async () => {
-      const db = await Db.open();
-      setLang((await db.lang()) ?? "fa");
-      setHosts((await db.hosts()).length);
-      setMessages(await db.messages());
-      setReady({ db, identity: await db.identity() });
+      const opened = await Db.open();
+      setLang((await opened.lang()) ?? "fa");
+      setHosts(await opened.hosts());
+      setMessages(await opened.messages());
+      setDb(opened);
     })().catch(() => setFailed(true));
   }, []);
 
-  // Collecting starts with the first pairing and never stops while the app is open.
+  // One collector per Host, each on its own box. Restarted only when the set
+  // of boxes changes, so renaming a Host does not interrupt anything.
+  const boxes = hosts.map((h) => h.boxId).join(" ");
   useEffect(() => {
-    if (!ready || hosts === 0) return;
-    return watch({
-      bridges: SEED_BRIDGES,
-      identity: ready.identity,
-      store: ready.db,
-      onBridge: (bridge, isUp) => setUp((prev) => (prev[bridge] === isUp ? prev : { ...prev, [bridge]: isUp })),
-      onFresh: (fresh) => {
-        void ready.db.messages().then(setMessages);
-        if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
-          const strings = STRINGS[langRef.current];
-          // Never the text of the SMS: a notification shows on a locked screen.
-          void navigator.serviceWorker?.ready.then((reg) =>
-            reg.showNotification(strings.notifyTitle(fresh[0]!.sim), { tag: "easyotp", icon: "/icons/icon-192.png" }),
-          );
-        }
-      },
-    });
-  }, [ready, hosts]);
+    if (!db || hosts.length === 0) return;
+    const stops = hosts.map((host) =>
+      watch({
+        bridges: SEED_BRIDGES,
+        identity: host,
+        store: db.inboxFor(host.id),
+        onBridge: (bridge, isUp) =>
+          setUp((prev) => (prev[`${host.id} ${bridge}`] === isUp ? prev : { ...prev, [`${host.id} ${bridge}`]: isUp })),
+        onFresh: (fresh) => {
+          void db.messages().then(setMessages);
+          if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
+            const strings = STRINGS[langRef.current];
+            // Never the text of the SMS: a notification shows on a locked screen.
+            void navigator.serviceWorker?.ready.then((reg) =>
+              reg.showNotification(strings.notifyTitle(fresh[0]!.sim), { tag: "easyotp", icon: "/icons/icon-192.png" }),
+            );
+          }
+        },
+      }),
+    );
+    return () => stops.forEach((stop) => stop());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, boxes]);
+
+  const changeLang = (next: Lang) => {
+    setLang(next);
+    void db?.setLang(next);
+  };
 
   const header = useMemo(
     () => (
@@ -73,21 +83,26 @@ export function App() {
         <span className="text-lg font-bold" dir="ltr">
           EasyOTP
         </span>
-        <button
-          onClick={() => {
-            const next: Lang = lang === "fa" ? "en" : "fa";
-            setLang(next);
-            void ready?.db.setLang(next);
-          }}
-          className="inline-flex min-h-12 items-center gap-2 rounded-lg px-3 font-semibold"
-          lang={lang === "fa" ? "en" : "fa"}
-        >
-          <Languages aria-hidden size={20} strokeWidth={2} />
-          {t.language}
-        </button>
+        {db && hosts.length > 0 && !pairing ? (
+          <button onClick={() => setPanel(true)} aria-label={t.menu} className="inline-flex size-12 items-center justify-center rounded-lg">
+            <Settings aria-hidden size={26} strokeWidth={2} />
+          </button>
+        ) : (
+          // Before the first pairing there is nothing to manage, so the one
+          // thing a person may need here is the other language.
+          <button
+            onClick={() => changeLang(lang === "fa" ? "en" : "fa")}
+            className="inline-flex min-h-12 items-center gap-2 rounded-lg px-3 font-semibold"
+            lang={lang === "fa" ? "en" : "fa"}
+          >
+            <Languages aria-hidden size={20} strokeWidth={2} />
+            {t.language}
+          </button>
+        )}
       </header>
     ),
-    [lang, ready, t],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lang, db, hosts.length, pairing, t],
   );
 
   if (!gateOpen()) return <Install t={t} header={header} />;
@@ -99,7 +114,7 @@ export function App() {
       </Screen>
     );
   }
-  if (!ready) {
+  if (!db) {
     return (
       <Screen>
         {header}
@@ -110,16 +125,16 @@ export function App() {
     );
   }
 
-  if (hosts === 0 || pairing) {
+  if (hosts.length === 0 || pairing) {
     return (
       <Pair
         t={t}
         lang={lang}
-        identity={ready.identity}
         header={header}
-        canCancel={hosts > 0}
-        onPaired={async (label) => {
-          setHosts((await ready.db.addHost({ label, pairedAt: Date.now() })).length);
+        canCancel={hosts.length > 0}
+        onPaired={async (keys, label) => {
+          await db.putHost({ ...keys, id: randomKey(12), name: label || t.hostsTitle, pairedAt: Date.now() });
+          setHosts(await db.hosts());
           setPairing(true);
         }}
         onClose={() => setPairing(false)}
@@ -127,15 +142,50 @@ export function App() {
     );
   }
 
+  const counts: Record<string, number> = {};
+  for (const m of messages) counts[m.host] = (counts[m.host] ?? 0) + 1;
+  // A bridge counts as reachable unless it last failed for every Host.
+  const reachable = SEED_BRIDGES.filter((b) => hosts.some((h) => up[`${h.id} ${b}`] !== false)).length;
+
   return (
-    <Messages
-      t={t}
-      lang={lang}
-      header={header}
-      messages={messages}
-      hosts={hosts}
-      bridges={{ up: SEED_BRIDGES.filter((b) => up[b] !== false).length, all: SEED_BRIDGES.length }}
-      onPairAnother={() => setPairing(true)}
-    />
+    <>
+      <Messages
+        t={t}
+        lang={lang}
+        header={header}
+        messages={messages}
+        hosts={hosts}
+        bridges={{ up: reachable, all: SEED_BRIDGES.length }}
+        onPairAnother={() => setPairing(true)}
+      />
+      {panel && (
+        <Panel
+          t={t}
+          lang={lang}
+          hosts={hosts}
+          counts={counts}
+          onClose={() => setPanel(false)}
+          onLang={changeLang}
+          onRename={async (host, name) => {
+            await db.putHost({ ...host, name });
+            setHosts(await db.hosts());
+          }}
+          onRemove={async (host) => {
+            await db.removeHost(host.id);
+            setHosts(await db.hosts());
+            setMessages(await db.messages());
+            setPanel(false);
+          }}
+          onPairAnother={() => {
+            setPanel(false);
+            setPairing(true);
+          }}
+          onDeleteMessages={async () => {
+            await db.deleteMessages();
+            setMessages([]);
+          }}
+        />
+      )}
+    </>
   );
 }
