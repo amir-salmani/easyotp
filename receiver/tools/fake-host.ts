@@ -16,6 +16,7 @@ import { SEED_BRIDGES } from "../src/bridges";
 import { newCode } from "../src/pairing";
 import { COLOURS, THINGS } from "../src/pictures";
 import { simHost } from "./sim-host";
+import { steadyFetch } from "./steady-fetch";
 
 const bridges = process.argv.length > 2 ? process.argv.slice(2) : [...SEED_BRIDGES];
 const name = process.env.FAKE_HOST_NAME ?? "Fake Host";
@@ -36,7 +37,7 @@ console.log(`\nRead this code to the person with the Receiver:\n\n    ${code.sli
 
 const state = { battery: 82, charging: true, net: "wifi" as const, pending: 0 };
 const host = await simHost({
-  bridges, code, label: name, state, every: 30,
+  bridges, code, label: name, state, every: 30, fetch: steadyFetch,
   onCommand: (cmd) => console.log(cmd === "buzz" ? "\n\u0007*** The Receiver asked this phone to RING ***" : "\n(the Receiver asked for a fresh report)"),
 });
 const colour = COLOURS[host.picture.colour]!;

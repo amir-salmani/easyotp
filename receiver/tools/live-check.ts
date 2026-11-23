@@ -14,6 +14,7 @@ import { sendCommand } from "../src/commands";
 import { newKeyPair, type Message, type Status } from "../src/open";
 import { newCode, pairAsReceiver } from "../src/pairing";
 import { simHost } from "./sim-host";
+import { steadyFetch } from "./steady-fetch";
 
 async function check(bridges: readonly string[]): Promise<void> {
   const keys = await newKeyPair();
@@ -24,8 +25,8 @@ async function check(bridges: readonly string[]): Promise<void> {
   const started = Date.now();
   let rang = 0;
   const [host, receiver] = await Promise.all([
-    simHost({ bridges, code, label: "live-check host", timeoutMs: 60_000, onCommand: (cmd) => void (cmd === "buzz" && rang++) }),
-    pairAsReceiver({ bridges, code, offer: { publicKey: keys.publicKey, boxId: identity.boxId, label: "live-check" }, privateKey: keys.privateKey, timeoutMs: 60_000 }),
+    simHost({ bridges, code, label: "live-check host", timeoutMs: 60_000, fetch: steadyFetch, onCommand: (cmd) => void (cmd === "buzz" && rang++) }),
+    pairAsReceiver({ bridges, code, offer: { publicKey: keys.publicKey, boxId: identity.boxId, label: "live-check" }, privateKey: keys.privateKey, timeoutMs: 60_000, fetch: steadyFetch }),
   ]);
   try {
     if (host.picture.colour !== receiver.picture.colour || host.picture.thing !== receiver.picture.thing) throw new Error("pictures differ");
@@ -46,7 +47,7 @@ async function check(bridges: readonly string[]): Promise<void> {
     const pass = async () => {
       let fresh = 0;
       for (const bridge of bridges) {
-        const result = await collectFrom(bridge, identity, store);
+        const result = await collectFrom(bridge, identity, store, steadyFetch);
         if (!result.acknowledged) throw new Error(`${bridge} refused the acknowledgement`);
         fresh += result.fresh.length;
       }
@@ -57,7 +58,7 @@ async function check(bridges: readonly string[]): Promise<void> {
 
     // Ask the Host to ring, and wait to be told that it did.
     host.start();
-    const command = await sendCommand(bridges, receiver.host, "buzz");
+    const command = await sendCommand(bridges, receiver.host, "buzz", steadyFetch);
     const deadline = Date.now() + 30_000;
     while ((status as Status | null)?.ack !== command) {
       if (Date.now() > deadline) throw new Error("the Host never answered the ring");
