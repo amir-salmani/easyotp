@@ -36,6 +36,39 @@ export interface Message {
   at: number;
 }
 
+/**
+ * A Host's report on itself, sent every `every` seconds and whenever it is
+ * asked. It is how a Receiver knows the phone at home is still alive before
+ * the day a code is needed. Must match `Status` in the Host app.
+ */
+export interface Status {
+  v: 2;
+  k: "status";
+  id: string;
+  /** When the Host made this report, in milliseconds. */
+  at: number;
+  /** How often it reports, in seconds. Silence for much longer means trouble. */
+  every: number;
+  /** 0 to 100, or null if the phone will not say. */
+  battery: number | null;
+  charging: boolean | null;
+  net: "wifi" | "cell" | "none" | null;
+  /** SMS captured and not yet delivered to a bridge. */
+  pending: number;
+  /** The command this report answers, if it answers one. */
+  ack?: string;
+}
+
+/** Something a Receiver asks a Host to do. Sealed to a key only paired Receivers were given. */
+export interface Command {
+  v: 2;
+  k: "cmd";
+  id: string;
+  at: number;
+  /** `buzz`: ring and vibrate, so someone nearby notices the phone. `ping`: report now. */
+  cmd: "buzz" | "ping";
+}
+
 export class OpenError extends Error {}
 
 export function b64url(bytes: Uint8Array): string {
@@ -72,6 +105,44 @@ function isMessage(x: unknown): x is Message {
     // A time a Date cannot hold would throw wherever it is shown.
     typeof m.at === "number" && Number.isFinite(m.at) && Math.abs(m.at) <= 8.64e15
   );
+}
+
+function isStatus(x: unknown): x is Status {
+  if (typeof x !== "object" || x === null) return false;
+  const s = x as Record<string, unknown>;
+  const time = (n: unknown) => typeof n === "number" && Number.isFinite(n) && Math.abs(n) <= 8.64e15;
+  return (
+    s.v === 2 && s.k === "status" && typeof s.id === "string" && time(s.at) &&
+    typeof s.every === "number" && s.every > 0 && s.every <= 86_400 &&
+    (s.battery === null || (typeof s.battery === "number" && s.battery >= 0 && s.battery <= 100)) &&
+    (s.charging === null || typeof s.charging === "boolean") &&
+    (s.net === null || s.net === "wifi" || s.net === "cell" || s.net === "none") &&
+    typeof s.pending === "number" && s.pending >= 0 &&
+    (s.ack === undefined || typeof s.ack === "string")
+  );
+}
+
+function isCommand(x: unknown): x is Command {
+  if (typeof x !== "object" || x === null) return false;
+  const c = x as Record<string, unknown>;
+  return c.v === 2 && c.k === "cmd" && typeof c.id === "string" && typeof c.at === "number" && Number.isFinite(c.at) && (c.cmd === "buzz" || c.cmd === "ping");
+}
+
+/**
+ * Opens anything a paired device sealed: an SMS, a Host's report on itself, or
+ * a command. As with `open`, the id inside must match the id it arrived under.
+ */
+export async function openAny(privateKey: string, envelopeId: string, enc: string, ct: string): Promise<Message | Status | Command> {
+  const plaintext = await openBytes(privateKey, enc, ct);
+  let payload: unknown;
+  try {
+    payload = JSON.parse(new TextDecoder().decode(plaintext));
+  } catch {
+    throw new OpenError("not a message");
+  }
+  if (!isMessage(payload) && !isStatus(payload) && !isCommand(payload)) throw new OpenError("not a message");
+  if (payload.id !== envelopeId) throw new OpenError("id mismatch");
+  return payload;
 }
 
 /**
@@ -116,5 +187,5 @@ export async function sealBytes(publicKey: string, plaintext: Uint8Array): Promi
   return { enc: b64url(new Uint8Array(sender.enc)), ct: b64url(new Uint8Array(ct)) };
 }
 
-/** What a Host does to a message. Here for the tests and the stand-in Host. */
-export const seal = (publicKey: string, message: Message) => sealBytes(publicKey, new TextEncoder().encode(JSON.stringify(message)));
+/** Seals an SMS, a status or a command to a public key. */
+export const seal = (publicKey: string, payload: Message | Status | Command) => sealBytes(publicKey, new TextEncoder().encode(JSON.stringify(payload)));

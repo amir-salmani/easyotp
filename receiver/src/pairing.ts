@@ -43,7 +43,7 @@ export class PairingError extends Error {
 
 interface Commit { t: "commit"; c: string; e: string }
 interface Offer { t: "offer"; enc: string; ct: string }
-interface Reveal { t: "reveal"; n: string; label: string; o: string }
+interface Reveal { t: "reveal"; n: string; label: string; o: string; enc?: string; ct?: string }
 type Wire = Commit | Offer | Reveal;
 
 /** What an offer carries once opened. */
@@ -68,7 +68,8 @@ function decode(data: string): Wire | null {
     if (m.t === "commit" && is(m.c, KEY_SHAPE) && is(m.e, KEY_SHAPE)) return { t: "commit", c: m.c, e: m.e };
     if (m.t === "offer" && is(m.enc, KEY_SHAPE) && is(m.ct, B64URL)) return { t: "offer", enc: m.enc, ct: m.ct };
     if (m.t === "reveal" && is(m.n, NONCE_SHAPE) && is(m.o, KEY_SHAPE)) {
-      return { t: "reveal", n: m.n, label: cleanLabel(m.label), o: m.o };
+      const sealed = is(m.enc, KEY_SHAPE) && is(m.ct, B64URL) ? { enc: m.enc, ct: m.ct } : {};
+      return { t: "reveal", n: m.n, label: cleanLabel(m.label), o: m.o, ...sealed };
     }
   } catch {
     // Anything unreadable is not a pairing message. Anyone can write to a slot.
@@ -212,11 +213,36 @@ export interface ReceiverOffer {
   label: string;
 }
 
+/** Where a Receiver sends a Host commands, and the key it seals them to. */
+export interface HostChannel {
+  publicKey: string;
+  boxId: string;
+}
+
 export interface PairingResult {
   /** Show this. The pairing counts only once both people say theirs is the same. */
   picture: Picture;
   /** What the other side calls itself. Part of the picture, so it is as trustworthy as the picture. */
   peerLabel: string;
+}
+
+/**
+ * The Host tells the Receiver where to send commands by sealing it to the key
+ * the Receiver just offered. Only something that opened the offer can do that,
+ * so a bridge cannot plant a channel of its own without being the one blind
+ * try in 512 that the picture already allows.
+ */
+async function openChannel(privateKey: string | undefined, reveal: Reveal): Promise<HostChannel | null> {
+  if (!privateKey || !reveal.enc || !reveal.ct) return null;
+  try {
+    const m = JSON.parse(new TextDecoder().decode(await openBytes(privateKey, reveal.enc, reveal.ct))) as Record<string, unknown>;
+    if (typeof m.pk === "string" && KEY_SHAPE.test(m.pk) && typeof m.box === "string" && KEY_SHAPE.test(m.box)) {
+      return { publicKey: m.pk, boxId: m.box };
+    }
+  } catch {
+    // Unreadable: this Host simply cannot be sent commands.
+  }
+  return null;
 }
 
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
@@ -230,7 +256,9 @@ export async function pairAsReceiver(opts: {
   timeoutMs?: number;
   /** Abort to stop at once, when the person gives up. Nothing is sent afterwards. */
   signal?: AbortSignal;
-}): Promise<PairingResult> {
+  /** The private half of the offered key. With it, the Host's command channel can be read. */
+  privateKey?: string;
+}): Promise<PairingResult & { host: HostChannel | null }> {
   if (!CODE_SHAPE.test(opts.code)) throw new PairingError("bad_code");
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const channel = new Channel(opts.bridges, await slotIdFrom(opts.code), "receiver", opts.fetch ?? fetch);
@@ -253,6 +281,7 @@ export async function pairAsReceiver(opts: {
         oneTimeKey: commit.e, hostLabel: reveal.label, receiverLabel: label,
       }),
       peerLabel: reveal.label,
+      host: await openChannel(opts.privateKey, reveal),
     };
   } finally {
     channel.close();
@@ -269,6 +298,8 @@ export async function pairAsHost(opts: {
   label: string;
   fetch?: Fetch;
   timeoutMs?: number;
+  /** Where this Receiver should send commands. Made by the Host for this one Receiver. */
+  commands?: HostChannel;
 }): Promise<PairingResult & { receiver: ReceiverOffer }> {
   if (!CODE_SHAPE.test(opts.code)) throw new PairingError("bad_code");
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
@@ -286,7 +317,10 @@ export async function pairAsHost(opts: {
       return body && { body, id: await offerId(m) };
     }, timeout);
     // Only now, with the offer fixed, is the nonce given away.
-    await channel.send({ t: "reveal", n: nonce, label, o: got.id });
+    const commands = opts.commands
+      ? await sealBytes(got.body.pk, utf8(JSON.stringify({ pk: opts.commands.publicKey, box: opts.commands.boxId })))
+      : {};
+    await channel.send({ t: "reveal", n: nonce, label, o: got.id, ...commands });
     return {
       picture: await pictureOf({
         code: opts.code, hostNonce: nonce, receiverNonce: got.body.n, pk: got.body.pk, box: got.body.box,
