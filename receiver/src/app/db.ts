@@ -10,7 +10,8 @@
  */
 import { boxIdFrom, randomKey } from "../ids";
 import type { Identity } from "../inbox";
-import { newKeyPair, type Message } from "../open";
+import { newKeyPair, type Message, type Status } from "../open";
+import type { HostChannel } from "../pairing";
 import type { Lang } from "./i18n";
 
 /** Keys for one pairing. Made when a pairing starts, kept only if it is confirmed. */
@@ -23,6 +24,10 @@ export interface PairedHost extends HostKeys {
   /** What this device's owner calls it. Starts as what the Host called itself. */
   name: string;
   pairedAt: number;
+  /** Where to send this Host commands. Absent for a Host paired before commands existed. */
+  remote?: HostChannel;
+  /** The newest report this Host has sent about itself. */
+  status?: Status;
 }
 
 /** A message, and which Host it came from. */
@@ -121,6 +126,25 @@ export class Db {
   }
 
   putHost = (host: PairedHost) => run(this.db, HOSTS, "readwrite", (tx) => tx.objectStore(HOSTS).put(host));
+
+  /**
+   * Takes a Host's report if it is newer than the one held. Read and write in
+   * one transaction: two bridges deliver the same report at the same moment.
+   * Resolves to whether anything changed.
+   */
+  putStatus(id: string, status: Status): Promise<boolean> {
+    let changed = false;
+    return run(this.db, HOSTS, "readwrite", (tx) => {
+      const store = tx.objectStore(HOSTS);
+      const read = store.get(id);
+      read.onsuccess = () => {
+        const host = read.result as PairedHost | undefined;
+        if (!host || (host.status && host.status.at >= status.at)) return;
+        changed = true;
+        store.put({ ...host, status });
+      };
+    }).then(() => changed);
+  }
 
   /** Removes a Host, its keys and every message from it, together or not at all. */
   removeHost(id: string): Promise<void> {

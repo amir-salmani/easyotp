@@ -1,8 +1,9 @@
-import { Check, Copy, Plus, Wifi, WifiOff } from "lucide-react";
+import { Check, Copy, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { PairedHost, StoredMessage } from "./db";
 import { when, type Lang, type Strings } from "./i18n";
-import { Button, Card, Screen } from "./ui";
+import { Monitor } from "./Monitor";
+import { Card, Screen } from "./ui";
 
 function MessageCard(props: { m: StoredMessage; hostName: string | null; t: Strings; lang: Lang; now: number }) {
   const { m, t, lang } = props;
@@ -57,7 +58,6 @@ export function Messages(props: {
   messages: StoredMessage[];
   hosts: PairedHost[];
   bridges: { up: number; all: number };
-  onPairAnother: () => void;
 }) {
   const { t, lang, hosts } = props;
   const [now, setNow] = useState(Date.now());
@@ -65,7 +65,8 @@ export function Messages(props: {
   const [only, setOnly] = useState<string | null>(null);
 
   useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), 30_000);
+    // Often enough that "alive" turns to "silent" within seconds of being true.
+    const timer = setInterval(() => setNow(Date.now()), 10_000);
     return () => clearInterval(timer);
   }, []);
 
@@ -100,6 +101,8 @@ export function Messages(props: {
         {down ? t.bridgesDown : t.bridgesUp(props.bridges.up, props.bridges.all)}
       </p>
 
+      <Monitor hosts={selected ? hosts.filter((h) => h.id === selected) : hosts} t={t} lang={lang} now={now} />
+
       {hosts.length > 1 && (
         <div role="group" aria-label={t.hostsTitle} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
           {chip(null, t.allHosts)}
@@ -121,11 +124,6 @@ export function Messages(props: {
           ))}
         </ul>
       )}
-
-      <Button variant="secondary" onClick={props.onPairAnother} className="mt-auto">
-        <Plus aria-hidden size={20} strokeWidth={2} />
-        {t.pairAnother}
-      </Button>
     </Screen>
   );
 }

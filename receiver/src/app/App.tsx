@@ -53,7 +53,12 @@ export function App() {
       watch({
         bridges: SEED_BRIDGES,
         identity: host,
-        store: db.inboxFor(host.id),
+        store: {
+          ...db.inboxFor(host.id),
+          status: async (status) => {
+            if (await db.putStatus(host.id, status)) setHosts(await db.hosts());
+          },
+        },
         onBridge: (bridge, isUp) =>
           setUp((prev) => (prev[`${host.id} ${bridge}`] === isUp ? prev : { ...prev, [`${host.id} ${bridge}`]: isUp })),
         onFresh: (fresh) => {
@@ -132,8 +137,8 @@ export function App() {
         lang={lang}
         header={header}
         canCancel={hosts.length > 0}
-        onPaired={async (keys, label) => {
-          await db.putHost({ ...keys, id: randomKey(12), name: label || t.hostsTitle, pairedAt: Date.now() });
+        onPaired={async (keys, label, remote) => {
+          await db.putHost({ ...keys, id: randomKey(12), name: label || t.hostsTitle, pairedAt: Date.now(), ...(remote ? { remote } : {}) });
           setHosts(await db.hosts());
           setPairing(true);
         }}
@@ -156,7 +161,6 @@ export function App() {
         messages={messages}
         hosts={hosts}
         bridges={{ up: reachable, all: SEED_BRIDGES.length }}
-        onPairAnother={() => setPairing(true)}
       />
       {panel && (
         <Panel
