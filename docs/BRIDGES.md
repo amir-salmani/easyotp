@@ -82,6 +82,19 @@ continuously. The hold is 25 s here against 55 s on bridge 1, which does not
 change the total. Before real use this path needs a hibernating WebSocket or
 push, or the free plan's daily duration allowance goes to a handful of Receivers.
 
+## Checking the bridges
+
+`npm run live-check` in `receiver/` pairs, delivers a message and rings through
+the deployed bridges, together and one at a time. The workflow `live-check` runs
+the same thing from GitHub's machines.
+
+Use the workflow when a check from a workstation fails. On 2026-11-23 the check
+failed about half the time from one laptop, always as a stalled request to
+bridge 2 and never as an error from it, while curl from the same laptop and
+eighteen runs from GitHub all passed. Bridge 2's own log showed every request
+answered. The laptop's connection to that one address was at fault, and what
+exactly about it was not found.
+
 ## Adding a bridge
 
 Deploy `bridge/` anywhere that can run a Worker or the container, then add it to
