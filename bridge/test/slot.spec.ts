@@ -1,7 +1,7 @@
 /** Pairing slots: a few small messages, for ten minutes, for whoever knows the id. */
 import { exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { Slot, Slots, SLOT_LIMITS } from "../src/slot";
+import { EMPTY_SLOT_HOLD_MS, Slot, Slots, SLOT_LIMITS } from "../src/slot";
 import { b64url } from "../src/ids";
 
 const random = (n = 32) => b64url(crypto.getRandomValues(new Uint8Array(n)));
@@ -40,7 +40,23 @@ describe("Slots", () => {
   it("starts an expired slot afresh, so an old pairing cannot leak into a new one", async () => {
     const slots = new Slots(10);
     slots.post("s", "host", "old", 0);
-    expect(await slots.read("s", 0, 0, SLOT_LIMITS.lifetimeMs)).toEqual([]);
+    expect(await slots.read("s", 0, 0, SLOT_LIMITS.lifetimeMs)).toEqual({ epoch: 0, messages: [] });
+    slots.post("s", "host", "new", SLOT_LIMITS.lifetimeMs);
+    // The new slot numbers from 1 again, and says by its epoch that it is new.
+    expect(await slots.read("s", 0, 0, SLOT_LIMITS.lifetimeMs)).toEqual({
+      epoch: SLOT_LIMITS.lifetimeMs,
+      messages: [{ seq: 1, from: "host", data: "new" }],
+    });
+  });
+
+  it("is not filled by reads: only a post makes a slot", async () => {
+    // Otherwise a few thousand GETs for made-up ids would refuse every real pairing.
+    const slots = new Slots(2);
+    const started = Date.now();
+    for (const id of ["a", "b", "c", "d"]) await slots.read(id, 0, 10, 0);
+    expect(slots.count).toBe(0);
+    expect(Date.now() - started).toBeLessThan(EMPTY_SLOT_HOLD_MS);
+    expect(slots.post("real", "host", "x", 0)).toBe(1);
   });
 
   it("refuses new slots at its limit, and frees expired ones first", () => {
@@ -60,14 +76,22 @@ describe("pairing over the bridge", () => {
 
   it("carries messages between the two sides in order", async () => {
     const u = url();
-    const waiting = exports.default.fetch(`${u}?after=0`);
     expect(await (await post(u, { v: 2, from: "host", data: "Y29tbWl0" })).json()).toMatchObject({ seq: 1 });
-    const first = (await (await waiting).json()) as { messages: unknown[] };
+    const first = (await (await exports.default.fetch(`${u}?after=0`)).json()) as { epoch: number; messages: unknown[] };
     expect(first.messages).toEqual([{ seq: 1, from: "host", data: "Y29tbWl0" }]);
+    expect(first.epoch).toBeGreaterThan(0);
+
+    // A reader already waiting is woken by the other side's post.
+    const waiting = exports.default.fetch(`${u}?after=1`);
 
     await post(u, { v: 2, from: "receiver", data: "b2ZmZXI" });
-    const next = (await (await exports.default.fetch(`${u}?after=1`)).json()) as { messages: Array<{ from: string }> };
+    const next = (await (await waiting).json()) as { epoch: number; messages: Array<{ from: string }> };
     expect(next.messages.map((m) => m.from)).toEqual(["receiver"]);
+    expect(next.epoch).toBe(first.epoch);
+  });
+
+  it("answers a read of a slot nobody posted to with nothing, and epoch 0", async () => {
+    expect(await (await exports.default.fetch(`${url()}?after=0`)).json()).toEqual({ epoch: 0, messages: [] });
   });
 
   it("refuses anything that is not a pairing message", async () => {

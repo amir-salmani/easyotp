@@ -76,6 +76,28 @@ export class Slot {
   }
 }
 
+/** What a read returns. `epoch` changes when a slot is replaced by a new one. */
+export interface SlotView {
+  /** When this slot began, or 0 if nobody has posted to it yet. */
+  epoch: number;
+  messages: SlotMessage[];
+}
+
+/**
+ * How long a read waits on a slot nobody has posted to. Short, because such a
+ * read costs the bridge something and proves nothing: anyone can ask about any
+ * id. A Receiver that arrives before its Host simply asks again.
+ */
+export const EMPTY_SLOT_HOLD_MS = 3000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+/** A read of a slot that does not exist: a short wait, and nothing kept. */
+export async function readNothing(holdMs: number): Promise<SlotView> {
+  await sleep(Math.min(holdMs, EMPTY_SLOT_HOLD_MS));
+  return { epoch: 0, messages: [] };
+}
+
 /** Every slot a process holds, for an entry point with no per-slot object of its own. */
 export class Slots {
   private slots = new Map<string, Slot>();
@@ -86,30 +108,31 @@ export class Slots {
     for (const [id, slot] of this.slots) if (slot.expired(now)) this.slots.delete(id);
   }
 
-  private open(slotId: string, now: number, create: boolean): Slot | null {
-    let slot = this.slots.get(slotId);
+  private live(slotId: string, now: number): Slot | undefined {
+    const slot = this.slots.get(slotId);
     if (slot?.expired(now)) {
       this.slots.delete(slotId);
-      slot = undefined;
+      return undefined;
     }
-    if (!slot && create) {
+    return slot;
+  }
+
+  /** Only a post makes a slot. A read never does, or reads alone could fill the bridge. */
+  post(slotId: string, from: "host" | "receiver", data: string, now: number): number | "full" {
+    let slot = this.live(slotId, now);
+    if (!slot) {
       if (this.slots.size >= this.maxSlots) this.sweep(now);
-      if (this.slots.size >= this.maxSlots) return null;
+      if (this.slots.size >= this.maxSlots) return "full";
       slot = new Slot(now);
       this.slots.set(slotId, slot);
     }
-    return slot ?? null;
+    return slot.post(from, data);
   }
 
-  post(slotId: string, from: "host" | "receiver", data: string, now: number): number | "full" {
-    const slot = this.open(slotId, now, true);
-    return slot ? slot.post(from, data) : "full";
-  }
-
-  /** Reading creates the slot too: whoever arrives first waits for the other. */
-  read(slotId: string, after: number, holdMs: number, now: number): Promise<SlotMessage[]> {
-    const slot = this.open(slotId, now, true);
-    return slot ? slot.read(after, holdMs) : Promise.resolve([]);
+  async read(slotId: string, after: number, holdMs: number, now: number): Promise<SlotView> {
+    const slot = this.live(slotId, now);
+    if (!slot) return readNothing(holdMs);
+    return { epoch: slot.createdAt, messages: await slot.read(after, holdMs) };
   }
 
   get count(): number {

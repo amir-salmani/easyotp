@@ -16,7 +16,7 @@
 import { LIMITS, type Sealed } from "./box";
 import { boxIdFrom, KEY_SHAPE, timingSafeEqual } from "./ids";
 import { boxTag, log } from "./log";
-import { SLOT_LIMITS, type SlotMessage } from "./slot";
+import { SLOT_LIMITS, type SlotView } from "./slot";
 
 export interface BoxStore {
   deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full">;
@@ -26,7 +26,7 @@ export interface BoxStore {
 
 export interface PairStore {
   post(slotId: string, from: "host" | "receiver", data: string): Promise<number | "full">;
-  read(slotId: string, after: number, holdMs: number): Promise<SlotMessage[]>;
+  read(slotId: string, after: number, holdMs: number): Promise<SlotView>;
 }
 
 export interface Store extends BoxStore {
@@ -158,8 +158,10 @@ async function pairPost(req: Request, store: PairStore, slotId: string): Promise
 async function pairRead(req: Request, store: PairStore, cfg: Config, slotId: string): Promise<Response> {
   const after = Number(new URL(req.url).searchParams.get("after") ?? 0);
   if (!Number.isInteger(after) || after < 0 || after > SLOT_LIMITS.maxMessages) return reject("pair", "malformed", 400);
-  const messages = await store.read(slotId, after, cfg.pollHoldMs);
-  return json({ messages });
+  // The epoch tells a reader when the slot it was following has been replaced,
+  // so it starts again from the first message instead of waiting for one that
+  // will never be numbered high enough.
+  return json(await store.read(slotId, after, cfg.pollHoldMs));
 }
 
 export async function handle(req: Request, store: Store, cfg: Config): Promise<Response> {
