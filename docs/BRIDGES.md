@@ -16,12 +16,14 @@ the Host sends through all of them and the Receiver collects from all of them.
 
 | # | Name | Runs as | In front of it | State |
 |---|---|---|---|---|
-| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers; the bridge image is not deployed |
+| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers over HTTPS; the bridge image is not deployed |
 | 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Not deployed |
 
-Neither name is final. Each is two levels below its zone, and a CDN's free
-certificate usually covers one. If either fails its certificate check it moves
-up a level, and the seed list in `Settings.kt` changes with it.
+Bridge 1's name is settled: ArvanCloud issued a certificate for
+`*.arsalan.finlawgpt.ir`, which covers it. Bridge 2's is not. It is two levels
+below its zone, and Cloudflare's free certificate covers one; if it fails its
+certificate check it moves up a level, and the seed list in `Settings.kt`
+changes with it.
 
 ## Bridge 1: the container
 
@@ -50,18 +52,19 @@ restarts the container when `live` points at a new image; a start counts only
 once `/health` answers. Nobody logs in to deploy, and this repository's sessions
 never touch that host.
 
-**Measured in the path** (2026-11-23, through ArvanCloud's edge over plain HTTP,
-to the stand-in):
+**Measured in the path** (2026-11-23, through ArvanCloud's edge over HTTPS, to
+the stand-in):
 
 | Check | Result |
 |---|---|
-| A quiet request held 30 s and 58 s | Answered. The 55 s collect fits |
+| A quiet request held 58 s | Answered. The 55 s collect fits |
 | The same, at the host's own front, without the CDN | Answered at 85 s, cut at 90 s |
-| Request body of 64 KB and of 900 KB | Accepted. The front's limit is 1 MB |
-| A 5 MB response | Complete in under 5 s |
+| Request body of 64 KB | Accepted. 900 KB was accepted over HTTP; the front's limit is 1 MB |
+| A 5 MB response | Complete in about 1 s |
 | Caching | `X-Cache: BYPASS` with `cache-control: no-store` |
 
-Not measured: any of this over HTTPS at the CDN, which was not enabled yet.
+HTTP is redirected to HTTPS at the edge. Between the edge and the origin the
+certificate is still the origin's internal one, which the CDN accepts.
 
 ## Bridge 2: the Worker
 

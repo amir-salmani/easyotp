@@ -44,7 +44,7 @@ screen.** That is still the most important fact on this page.
 
 | Thing | State |
 |---|---|
-| Bridge 1's place | A stand-in answers through ArvanCloud over HTTP. HTTPS at the CDN is not on yet |
+| Bridge 1's place | A stand-in answers through ArvanCloud over HTTPS with a valid certificate |
 | Bridge 1's image | Published privately by CI under the tags `dev` and `sha-…`. `live` does not exist until `main` builds |
 | Bridge 2 | Not deployed |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
@@ -64,7 +64,7 @@ screen.** That is still the most important fact on this page.
 
 | Debt | Why it matters | When |
 |---|---|---|
-| Bridge names not final | Both are two levels below their zone and may fail their certificate check. An installed phone starts from the names compiled in | Before the first release |
+| Bridge 2's name not final | It is two levels below its zone and may fail its certificate check. An installed phone starts from the names compiled in. Bridge 1's name is confirmed | Before the first release |
 | Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first release |
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message | With pairing |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
