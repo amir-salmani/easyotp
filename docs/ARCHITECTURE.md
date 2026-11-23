@@ -33,7 +33,7 @@ choice was made is in [DECISIONS.md](DECISIONS.md); this file says what exists.
 |---|---|---|
 | `host/` | The Host app's native core, Kotlin | Android 8+ |
 | `bridge/` | The bridge, TypeScript. One protocol, two entry points | Cloudflare Workers; Node in a container |
-| `receiver/` | The library that opens sealed messages. The Receiver's screens will be built on it | Browsers |
+| `receiver/` | The Receiver: a web app, and the pairing and opening code under it | Browsers |
 | `docs/` | This record | |
 
 Gradle is at the root with one module, `:host`. `bridge/` and `receiver/` are
@@ -83,6 +83,8 @@ they are for collects them.
 | `POST /v2/box/<boxId>` | Host | Deposit one sealed message |
 | `GET /v2/box/<boxId>` | Receiver | Collect everything waiting; waits if the box is empty |
 | `POST /v2/box/<boxId>/ack` | Receiver | Remove what has been collected |
+| `POST /v2/pair/<slotId>` | either | Add a pairing message |
+| `GET /v2/pair/<slotId>` | either | Read pairing messages; waits if there are none |
 | `GET /health` | anyone | Liveness |
 
 **Who may do what** is decided from the request alone:
@@ -108,19 +110,35 @@ each bridge's contract and measured limits.
 
 ## 4. The Receiver
 
-Today, a library: `receiver/src/open.ts` opens a sealed message and checks that
-the id inside the seal matches the id it was delivered under. The screens, the
-key storage, pairing and collecting are not built.
+A web app at `pwa.easyotp.rhinocloud.ir`, in Persian and English. In a browser
+tab it shows only how to add it to the home screen; it starts once opened from
+there (D15).
 
-The Receiver will be a web app at `pwa.easyotp.rhinocloud.ir` that works only
-once added to the home screen, and the same screens inside an Android shell
-(D15).
+| File | What it does |
+|---|---|
+| `src/open.ts` | Opens a sealed message, and refuses one whose id in the seal differs from the id it arrived under |
+| `src/pairing.ts` | The Receiver's side of pairing (D24) |
+| `src/inbox.ts` | Collects from every bridge, shows a message once, acknowledges only after it is stored |
+| `src/app/` | The screens, and `db.ts`: keys, pairings and messages in IndexedDB on the device |
+
+The private key and the box key are made on first use and exist only in that
+device's storage. There is no account and no export.
+
+A notification appears only while the app is open or in the background. Waking
+a closed app needs web push, which is not built. The Android shell is not built.
 
 ## 5. Pairing
 
-Not built. The design is D18: the Host shows eight digits, the person beside it
-reads them over a phone call, and both screens then show a picture that must
-match. Pairing gives the Host a Receiver's public key and box id.
+The Host shows eight digits, the person beside it reads them over a phone call,
+and both screens then show a colour and a thing that must match (D18). Under
+that are three messages through a pairing slot on the bridges (D24). Pairing
+gives the Host a Receiver's public key and box id.
+
+A slot is found by an id derived from the code, holds at most eight small
+messages for ten minutes, and is never written to disk.
+
+The Receiver's side is built. The Host app's side is not: until it is,
+`npm run fake-host` in `receiver/` stands in for a phone.
 
 ## 6. Updating without a new APK
 

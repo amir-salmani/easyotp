@@ -55,8 +55,11 @@ the Host's sealed settings or a bridge that also learned the public key. Closing
 it fully means the Host signing each message, which is not built.
 
 **A6. Someone between the two people at pairing.** Would have to relay both
-halves. The picture both screens show is derived from the keys each side ended
-up with, so an interposer makes the pictures differ (D18). Not built yet.
+halves. The picture both screens show is derived from what each side ended up
+with, and the order of the exchange stops a bridge from steering the two
+pictures to match (D24). It has one blind try in 512, and a failed try is seen
+by both people. Tested against a bridge that swaps the key and one that changes
+the nonce.
 
 **A7. A replayed or duplicated message.** A bridge can deliver the same sealed
 message again. The Receiver shows a message once per id, and refuses a message

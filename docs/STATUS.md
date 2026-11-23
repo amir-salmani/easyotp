@@ -27,18 +27,20 @@ screen.** That is still the most important fact on this page.
 | Bridge | Deposit, collect with hold, acknowledge, expiry, limits, key-only access | Tests on the Workers runtime and on Node |
 | Bridge image | Runs unprivileged, read-only, 256 MB, clean exit on SIGTERM | CI runs it that way before publishing |
 | Receiver library | Opens a sealed message, refuses a changed or re-labelled one | Unit tests |
+| Pairing | Receiver's side, and the Host's side in TypeScript. A bridge that swaps the key or changes the nonce is caught | Unit tests against the real bridge code |
+| Receiver web app | Install gate, pairing, messages shown once, copy, Persian and English | A browser test against two local bridges: `npm run e2e` |
 | Host to Receiver | A message sealed by the Host's code opens in the Receiver's code | Fixture regenerated in CI every run |
 | Build | Signed Host APK and bridge image from GitHub Actions | `build.yml` |
 
 ## 2. Not built
 
-- The Receiver's screens, key storage and collecting, in either form (D15).
-- Pairing (D18). Until it exists nothing can put a Receiver into the Host.
+- **The Host app's side of pairing, and any Host screen.** Until then no real phone can be paired; `npm run fake-host` stands in.
+- Web push, so a closed Receiver is woken by a new message.
+- The Receiver APK.
 - The Host's screens, wizard, health checks and self-test (D19, ARCHITECTURE 7).
 - The signed bundle and config loader, and the signed bridge list (D17, D19).
 - Heartbeat with battery and charger state.
 - The dormant self-update (D19).
-- The Receiver APK.
 
 ## 3. Deployed
 
@@ -53,7 +55,7 @@ screen.** That is still the most important fact on this page.
 
 1. ~~Actions builds and signs the Host APK.~~ Done.
 2. ~~One repository, three parts; Telegram removed; the new bridge protocol.~~ Done.
-3. ~~Bridge 2 deployed.~~ Done. Receiver web app with pairing; a real SMS arrives.
+3. ~~Bridge 2 deployed; Receiver web app with pairing.~~ Done. Next: the Host app's pairing and first screens, then a real SMS on a real phone.
 4. Signed bundle and config, proven by changing a screen without a new APK.
 5. Wizard, health checks, heartbeat.
 6. ~~Bridge 1's image goes `live`.~~ Done.
