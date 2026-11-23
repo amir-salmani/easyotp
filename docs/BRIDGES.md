@@ -17,13 +17,12 @@ the Host sends through all of them and the Receiver collects from all of them.
 | # | Name | Runs as | In front of it | State |
 |---|---|---|---|---|
 | 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers over HTTPS; the bridge image is not deployed |
-| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Not deployed |
+| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Live since 2026-11-23 |
 
-Bridge 1's name is settled: ArvanCloud issued a certificate for
-`*.arsalan.finlawgpt.ir`, which covers it. Bridge 2's is not. It is two levels
-below its zone, and Cloudflare's free certificate covers one; if it fails its
-certificate check it moves up a level, and the seed list in `Settings.kt`
-changes with it.
+Both names are settled. Each is two levels below its zone, which a CDN's
+ordinary free certificate does not cover, but ArvanCloud issued one for
+`*.arsalan.finlawgpt.ir` and Cloudflare issues one for a Worker's custom domain
+by name.
 
 ## Bridge 1: the container
 
@@ -68,7 +67,9 @@ certificate is still the origin's internal one, which the CDN accepts.
 
 ## Bridge 2: the Worker
 
-`wrangler deploy` from `bridge/`. One Durable Object per box, SQLite-backed,
+`wrangler deploy` from `bridge/`, by hand; CI does not deploy it. The
+certificate for a new custom domain took about five minutes to appear, and the
+name failed its TLS handshake until then. One Durable Object per box, SQLite-backed,
 which is the kind the free plan runs. It answers only on its own name;
 `workers.dev` is off, because that domain is filtered in Iran.
 

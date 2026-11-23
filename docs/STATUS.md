@@ -45,8 +45,8 @@ screen.** That is still the most important fact on this page.
 | Thing | State |
 |---|---|
 | Bridge 1's place | A stand-in answers through ArvanCloud over HTTPS with a valid certificate |
-| Bridge 1's image | Published privately by CI under the tags `dev` and `sha-…`. `live` does not exist until `main` builds |
-| Bridge 2 | Not deployed |
+| Bridge 1's image | Public, and `live` exists since `main` was built. The host still runs the stand-in |
+| Bridge 2 | Live. A deposit, a refused collect without the key, a collect, an acknowledge and a 25 s empty hold were run against it |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
 | A release | None. No tag has been cut |
 
@@ -54,7 +54,7 @@ screen.** That is still the most important fact on this page.
 
 1. ~~Actions builds and signs the Host APK.~~ Done.
 2. ~~One repository, three parts; Telegram removed; the new bridge protocol.~~ Done.
-3. Bridge 2 deployed; Receiver web app with pairing; a real SMS arrives.
+3. ~~Bridge 2 deployed.~~ Done. Receiver web app with pairing; a real SMS arrives.
 4. Signed bundle and config, proven by changing a screen without a new APK.
 5. Wizard, health checks, heartbeat.
 6. Bridge 1's image goes `live`.
@@ -64,7 +64,6 @@ screen.** That is still the most important fact on this page.
 
 | Debt | Why it matters | When |
 |---|---|---|
-| Bridge 2's name not final | It is two levels below its zone and may fail its certificate check. An installed phone starts from the names compiled in. Bridge 1's name is confirmed | Before the first release |
 | Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first release |
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message | With pairing |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
