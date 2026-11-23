@@ -26,7 +26,11 @@ export class BoxObject extends DurableObject<Env> {
   private async save(box: Box): Promise<void> {
     if (box.count === 0) {
       // An empty box leaves nothing behind, so an abandoned one costs nothing.
-      await this.ctx.storage.deleteAll();
+      // Its one key and its alarm are removed by name. `deleteAll()` did the
+      // same job and, on Cloudflare itself, left the object unable to answer
+      // the next request; the local runtime never showed it.
+      await this.ctx.storage.delete(STORAGE_KEY);
+      await this.ctx.storage.deleteAlarm();
       return;
     }
     await this.ctx.storage.put(STORAGE_KEY, box.snapshot());

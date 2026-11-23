@@ -73,6 +73,25 @@ describe("deposit and collect", () => {
     expect(got.messages).toHaveLength(1);
   });
 
+  it("keeps working on a box that has been emptied", async () => {
+    // Found live on 2026-11-23: after a box was emptied, the next deposit to
+    // it, or a collect waiting on it, could hang for good.
+    const { boxKey, url } = await newBox();
+    for (let round = 0; round < 3; round++) {
+      const m = sealed();
+      await deposit(url, m);
+      await collect(url, boxKey);
+      expect(await (await ack(url, boxKey, [m.id])).json()).toMatchObject({ removed: 1 });
+      // A collect is waiting on the now-empty box when the next message lands.
+      const waiting = collect(url, boxKey);
+      const next = { ...sealed(), tag: "status" };
+      expect((await deposit(url, next)).status).toBe(200);
+      const got = (await (await waiting).json()) as { messages: Array<{ id: string }> };
+      expect(got.messages.map((x) => x.id)).toEqual([next.id]);
+      await ack(url, boxKey, [next.id]);
+    }
+  });
+
   it("replaces a tagged message with the next one of the same tag", async () => {
     const { boxKey, url } = await newBox();
     await deposit(url, { ...sealed(), tag: "status" });
