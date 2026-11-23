@@ -47,8 +47,8 @@ screen.** That is still the most important fact on this page.
 | Thing | State |
 |---|---|
 | Bridge 1 | Live, with pairing. Its host took the new `live` image by itself about six minutes after `main` built. `npm run live-check` paired and delivered a message through it |
-| Bridge 2 | Live, but one deploy behind: it has no pairing routes yet. Pairing works through bridge 1 alone until `wrangler deploy` is run from `bridge/` |
-| Receiver web app | Built and tested, **not deployed**. `npm run deploy` from `receiver/` puts it at `pwa.easyotp.rhinocloud.ir` |
+| Bridge 2 | Live, with pairing. Deployed by hand: `wrangler deploy` from `bridge/` |
+| Receiver web app | Live at `pwa.easyotp.rhinocloud.ir`. Deployed by hand: `npm run deploy` from `receiver/`. Not yet installed on a real phone |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
 | A release | None. No tag has been cut |
 
