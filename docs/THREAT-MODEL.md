@@ -1,106 +1,103 @@
 ---
 type: Reference
 title: Threat model
-description: Written before the code, so the code can be checked against it.
+description: What EasyOTP defends, against whom, and what it does not.
 status: active
 created: 2026-09-17
-timestamp: 2026-09-17
+timestamp: 2026-11-23
 tags: []
 ---
 
 # Threat model
 
-Written before the code, so the code can be checked against it.
-
-An OTP forwarder is a credential-interception tool pointed at yourself. That is
-exactly what an attacker wants to install on your phone. Every design choice below
-follows from taking that seriously.
+An SMS forwarder is a tool for intercepting credentials, pointed at yourself.
+That is exactly what an attacker wants installed on your phone. Every choice
+here follows from taking that seriously.
 
 ## Assets
 
-| Asset | Where it lives | Impact if lost |
+| Asset | Where it lives | If lost |
 |---|---|---|
-| OTP codes in transit | phone → Worker → Telegram | account takeover: bank, gov, exchange |
-| Bot token | phone (Keystore-wrapped); transiently in Worker memory | attacker impersonates the bot, reads and injects |
-| Device signing key | Android Keystore, non-exportable | attacker forges forwards or commands |
-| SMS archive | phone, encrypted Room DB | historical codes, contacts, financial pattern |
-| Routing config | phone | attacker redirects OTPs to their own chat |
+| Messages in transit | Host, bridges, Receiver | Account takeover: bank, government, exchange |
+| A Receiver's private key | The Receiver only | Everything sent to that Receiver can be read |
+| A Receiver's box key | The Receiver only | Its sealed messages can be collected and deleted, not read |
+| Pairings (public key and box id per Receiver) | Host, sealed at rest | An attacker can send that Receiver false messages |
+| The outbox | Host, sealed at rest | Recent messages, senders, timing |
+| The release signing key | CI secrets and the encrypted secrets repository | A forged update would be accepted by every installed phone |
 
 ## Adversaries
 
-**A1 — Network observer (Iranian ISP, DPI, ArvanCloud).** Sees TLS metadata and,
-because Arvan terminates TLS on the `.ir` leg, the HTTP body. **This is why payloads
-are HPKE-sealed**: the body is ciphertext to everyone between the phone and the
-Worker. Residual exposure is metadata — timing, size, endpoint, frequency. An observer
-learns that a device forwards messages and roughly when. Not mitigated; padding to
-fixed buckets is a possible later hardening.
+**A1. A network observer** (an Iranian ISP, a CDN in front of a bridge). Sees TLS
+metadata, and a CDN that terminates TLS sees the request itself. Every message
+is sealed to the Receiver before it leaves the Host, so what is visible is a box
+id, a message id that means nothing off the phone, sizes and timing. An observer
+learns that a phone forwards messages and roughly when. Not mitigated.
 
-**A2 — Relay operator (Rhinocloud, on the hosted tier).** The Worker unseals in
-memory to call Telegram, so **the hosted relay operator can technically read
-plaintext**. Mitigations are bodies never logged (lint-enforced), tokens never
-persisted, no storage bindings that could retain anything. But these are promises
-about code, and the honest answer to "can Rhinocloud read my OTPs?" is *the deployed
-code decides, and you should read it*. This asymmetry is the entire reason the source
-is open and self-hosting is a first-class path — not a nice-to-have.
+**A2. A bridge operator, or whoever takes over a bridge.** Holds sealed messages
+and has no key, so **cannot read one**. Can withhold or delete them, which the
+other bridges cover, and can see which box receives how much and when. Can
+deposit into any box whose id it has seen, which is A5.
 
-**A3 — Telegram.** Sees every forwarded message in plaintext. **Bot chats are not
-end-to-end encrypted and cannot be made so** while remaining readable in a Telegram
-client. Any product claiming an E2E Telegram OTP forwarder is lying. Stated in the
-README, not buried. Mitigations are the user's: private chat, 2FA on the account, and
-knowing the trade. A "sealed mode" — ciphertext to Telegram, decrypted in a companion
-viewer — is possible and destroys the usability that makes the product worth having.
+**A3. Someone with the Host phone in their hands.** Wins. It is the SIM. What
+software can do is limit how much history they get: the outbox and the pairings
+are sealed with a Keystore key, and nothing is included in backups.
 
-**A4 — Attacker with physical access to the handset.** Wins. It is the SIM. Nothing in
-software fixes possession of the device holding the SIM. Reduce blast radius: app lock
-(biometric/PIN) on config changes, no plaintext archive at rest, remote `/wipe` from
-an approved chat.
+**A4. Someone with a Receiver device, unlocked.** Reads everything that Receiver
+can. Its private key cannot be taken back; the remedy is to remove that Receiver
+at the Host and pair again.
 
-**A5 — Attacker who steals the bot token.** Can read forwarded messages and send as
-the bot. Cannot inject commands to the device — those require an **approved chat_id**,
-and approval happens on the phone. Recovery is revoking the token in @BotFather and
-re-enrolling.
+**A5. Someone who learns a Receiver's public key and box id.** Can seal a
+message that opens on that Receiver and deposit it: a false message, such as a
+fake code prompt. Cannot read anything. HPKE base mode is public-key encryption
+and does not say who sealed a message. Both values are known only to the Host
+and the Receiver, and the box id also to the bridges, so this needs a breach of
+the Host's sealed settings or a bridge that also learned the public key. Closing
+it fully means the Host signing each message, which is not built.
 
-**A6 — Malicious or hostile Worker deployment.** A user pointed at a hostile relay
-loses everything. Mitigation: the app pins the Worker's HPKE public key at enrollment
-and refuses a silent key change — a swapped relay is a visible, blocking event, not a
-quiet redirect.
+**A6. Someone between the two people at pairing.** Would have to relay both
+halves. The picture both screens show is derived from the keys each side ended
+up with, so an interposer makes the pictures differ (D18). Not built yet.
 
-**A7 — Replay / injection on the forward path.** Every request is ECDSA-signed over a
-canonical body plus timestamp, with a nonce and a bounded acceptance window. A
-replayed forward is rejected; a forged one fails signature.
+**A7. A replayed or duplicated message.** A bridge can deliver the same sealed
+message again. The Receiver shows a message once per id, and refuses a message
+whose id in the seal differs from the id it was delivered under.
 
-## Non-goals
+**A8. A forged update.** Screens and configuration are code and data that reach
+the phone through bridges. They are signed, and the core verifies the signature
+before use (D19). An APK update must carry the release key's signature, which
+Android enforces. Not built yet.
 
-- **Hiding that the app exists** from someone inspecting the phone. It runs a
-  persistent notification by design and by Android policy.
-- **Protecting against a compromised Android OS** (rootkit, hostile OEM firmware).
-- **Surviving a national internet shutdown.** Messages queue on-device and flush on
-  restore. SMS fallback was considered and declined (see D2).
-- **Preventing the device owner from reading their own messages.**
+## Not defended
+
+- **Hiding that the app exists** from someone looking at the phone. It shows a
+  permanent notification, by design and by Android's rules.
+- **A compromised Android**, or hostile firmware from the manufacturer.
+- **A national internet shutdown.** Messages wait on the phone.
+- **Traffic analysis** by a bridge or a network: who, when, how much.
 
 ## Rules the code must hold
 
-These are testable claims, not aspirations. Each gets a test or a lint rule.
+Each is a test or a property of the build, not an intention.
 
-1. No message body, sender, or bot token ever reaches a log sink — Worker or app.
-2. The Worker declares no storage bindings capable of persistence beyond the
-   memory-only mailbox.
-3. Bot tokens are never written to Worker storage of any kind.
-4. The device signing key is generated in Keystore with `setUserAuthenticationRequired`
-   where practical, and is non-exportable.
-5. The Room database is encrypted at rest with a Keystore-wrapped key.
-6. A request whose timestamp falls outside the replay window is rejected before any
-   unsealing work happens.
-7. A command from an unapproved chat_id is dropped and surfaced to the user as a
-   security event — never silently ignored.
-8. Enrollment pins the relay's public key; a changed key blocks and prompts.
+1. Nothing a person wrote or received, and no key, reaches a log, on the Host
+   or a bridge. The bridge's logger accepts a closed set of scalar fields.
+2. A bridge has no key and never opens anything. No sealing library is among
+   its dependencies.
+3. A box is opened only by its key. Its id, alone, opens nothing.
+4. A message is removed from the Host's outbox only after every Receiver's copy
+   was accepted by a bridge.
+5. A message leaves a bridge only when acknowledged or expired.
+6. The outbox and the settings are sealed at rest with a Keystore key and
+   excluded from backup.
+7. The Receiver shows a message only if the id in the seal matches the id it
+   arrived under.
+8. An APK is published only if it is signed with the release key (checked in CI).
 
 ## Legal and consent
 
-The product forwards messages from SIMs the operator physically holds. Where a SIM
-belongs to someone else — the household case this was built for — the app records an
-explicit per-SIM consent acknowledgement at setup, naming whose line it is. This is a
-product requirement, not legal advice: jurisdictions differ on intercepting another
-person's communications, and consent recorded at setup is the minimum defensible
-posture. Sold commercially, this needs actual review under both Finnish and EU law
-before launch.
+The product forwards messages from SIM cards the operator physically holds.
+Where a SIM belongs to someone else, which is the household case this was built
+for, the Host records an explicit acknowledgement per SIM before it forwards
+anything from it. That is a product requirement, not legal advice: countries
+differ on intercepting another person's messages. Sold commercially, this needs
+review under Finnish and EU law first.

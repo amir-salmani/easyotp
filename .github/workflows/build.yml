@@ -1,0 +1,190 @@
+name: build
+
+# Everything anyone installs or runs comes from here (DECISIONS D20): the Host
+# APK and the bridge image. A tag named v* publishes a GitHub Release; every
+# other push proves the build.
+on:
+  push:
+    branches: [dev, main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}-bridge
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: bridge/package-lock.json
+
+      - name: Type-check and test, on the Workers runtime and on Node
+        working-directory: bridge
+        run: |
+          npm ci
+          npm run typecheck
+          npm test
+
+      - name: Build the image
+        # The source label is what ties the package to this repository, which
+        # is what lets this job's own token publish it.
+        run: |
+          docker build -t "$IMAGE:candidate" \
+            --label "org.opencontainers.image.source=https://github.com/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            --label "org.opencontainers.image.licenses=AGPL-3.0-only" bridge
+
+      # The image is run the way bridge 1's host runs it: an unprivileged user,
+      # a read-only root, a small /tmp and one writable directory. An image
+      # that needs more than that fails here, not on the host.
+      - name: Run the image under bridge 1's constraints
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/data" && sudo chown 10001:10001 "$RUNNER_TEMP/data"
+          docker run -d --name bridge --read-only --user 10001:10001 --cap-drop ALL \
+            --security-opt no-new-privileges --memory 256m --tmpfs /tmp:size=16m \
+            -v "$RUNNER_TEMP/data:/data" -e HOST=0.0.0.0 -p 127.0.0.1:8080:8080 "$IMAGE:candidate"
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8080/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8080/health | grep -q '"ok":true'
+          docker exec bridge node -e "fetch('http://127.0.0.1:8080/health').then(r=>process.exit(r.ok?0:1))"
+          docker stop -t 15 bridge
+          test "$(docker inspect -f '{{.State.ExitCode}}' bridge)" = 0
+
+      # `live` is the tag bridge 1's host follows, so it moves only from main.
+      - name: Publish the image
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          tags="sha-${GITHUB_SHA::12} ${GITHUB_REF_NAME}"
+          [ "$GITHUB_REF_NAME" = main ] && tags="$tags live"
+          for tag in $tags; do
+            docker tag "$IMAGE:candidate" "$IMAGE:$tag"
+            docker push "$IMAGE:$tag"
+          done
+
+  host:
+    runs-on: ubuntu-latest
+    env:
+      EASYOTP_VERSION_CODE: ${{ github.run_number }}
+      EASYOTP_VERSION_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('0.0.{0}-{1}', github.run_number, github.sha) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 21
+
+      # The runner image already carries an Android SDK. Accepting the licences
+      # is all Gradle needs to fetch whatever platform or build tools it lacks.
+      - name: Accept SDK licences
+        run: yes | "$(ls -d "$ANDROID_HOME"/cmdline-tools/*/bin/sdkmanager | sort -V | tail -1)" --licenses > /dev/null || true
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      # --rerun, because one test writes the fixture the next step opens. A
+      # test task restored from the build cache passes without running, and
+      # then there is no fixture.
+      - name: Unit tests
+        run: ./gradlew :host:testDebugUnitTest --rerun --stacktrace
+
+      # The committed fixture only proves that whatever wrote it interoperates.
+      # Sealing a fresh one here with the Host's code and opening it with the
+      # Receiver's is what makes a change to either side's sealing fail in CI
+      # instead of in the field, where it shows up as messages nobody can open.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: receiver/package-lock.json
+
+      - name: Receiver opens what the Host just sealed
+        run: |
+          set -euo pipefail
+          cp host/build/interop/hpke-fixture.json receiver/test/hpke-fixture.json
+          cd receiver
+          npm ci
+          npm run typecheck
+          npm test
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: interop-fixture
+          path: host/build/interop/hpke-fixture.json
+          if-no-files-found: error
+
+      # Pull requests from forks get no secrets, so they stop at the tests.
+      - name: Restore the release key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.EASYOTP_KEYSTORE_B64 }}
+        run: |
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf %s "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+          echo "EASYOTP_KEYSTORE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
+          echo "present=true" >> "$GITHUB_OUTPUT"
+
+      - name: Signed release APK
+        if: steps.key.outputs.present == 'true'
+        env:
+          EASYOTP_KEYSTORE_PASSWORD: ${{ secrets.EASYOTP_KEYSTORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ./gradlew :host:assembleRelease :host:lintRelease --stacktrace
+          cp host/build/outputs/apk/release/host-release.apk easyotp-host.apk
+          # A release that is not signed with the one key every installed phone
+          # trusts must never leave this job.
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs easyotp-host.apk | tee certs.txt
+          grep -qi "SHA-256 digest: fa735cec0267e066611ce1afa31c50e661d0fb8b51d6ed2e39a5e8fb066bbc5a" certs.txt
+          sha256sum easyotp-host.apk | tee easyotp-host.apk.sha256
+
+      - uses: actions/upload-artifact@v7
+        if: steps.key.outputs.present == 'true'
+        with:
+          name: easyotp-host
+          path: |
+            easyotp-host.apk
+            easyotp-host.apk.sha256
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [bridge, host]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: easyotp-host
+      # Asset names are a contract: dl.amirsalmani.com serves the asset called
+      # easyotp-host.apk from the latest release (DECISIONS D21).
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" easyotp-host.apk easyotp-host.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

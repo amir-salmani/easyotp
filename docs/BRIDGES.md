@@ -1,0 +1,86 @@
+---
+type: Reference
+title: Bridges
+description: Each bridge's contract, how it is deployed, and the limits measured in its path.
+status: active
+created: 2026-11-23
+timestamp: 2026-11-23
+tags: []
+---
+
+# Bridges
+
+A bridge is the code in `bridge/`, deployed somewhere. Every bridge speaks the
+protocol in [ARCHITECTURE.md](ARCHITECTURE.md) section 3, and none is required:
+the Host sends through all of them and the Receiver collects from all of them.
+
+| # | Name | Runs as | In front of it | State |
+|---|---|---|---|---|
+| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers over HTTPS; the bridge image is not deployed |
+| 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Not deployed |
+
+Bridge 1's name is settled: ArvanCloud issued a certificate for
+`*.arsalan.finlawgpt.ir`, which covers it. Bridge 2's is not. It is two levels
+below its zone, and Cloudflare's free certificate covers one; if it fails its
+certificate check it moves up a level, and the seed list in `Settings.kt`
+changes with it.
+
+## Bridge 1: the container
+
+The host it runs on is shared and gives a workload very little. The image is
+built for that, and CI runs it under the same constraints before publishing it.
+
+| The host provides | The image must |
+|---|---|
+| `HOST`, `PORT`, `DATA_DIR`, `NODE_ENV=production` | Listen on `$HOST:$PORT`, plain HTTP, one port |
+| A health check every 30 s: `node -e "fetch(...)"` inside the container | Answer `GET /health` with 2xx within 5 s, with `node` on `PATH`; be ready within 30 s |
+| uid and gid 10001, no capabilities, no new privileges | Never assume root, including at start |
+| A read-only root, `/data` to write in, 16 MB of `/tmp` | Write nowhere else, and keep `/data` under 256 MB itself |
+| 256 MB of memory, hard | Stay far below it (measured: 17 MB idle) |
+| No outbound network at all | Never call out |
+| `SIGTERM`, then `SIGKILL` after 15 s | Exit on `SIGTERM`; held collects are cut and Receivers reconnect |
+| The caller's address in `X-Forwarded-For` | Not rely on it: behind the CDN it is the CDN's edge |
+
+Logs go to stdout, one line per event, and never carry a message or a key.
+
+`node.ts` keeps its own total under `MAX_TOTAL_BYTES` (128 MB by default) and
+answers `507` to deposits past it, so the 256 MB limit is never approached.
+
+**Deploying.** CI pushes `ghcr.io/amir-salmani/easyotp-bridge`. The tag `live`
+moves only on a push to `main`. The host asks the registry every 15 minutes and
+restarts the container when `live` points at a new image; a start counts only
+once `/health` answers. Nobody logs in to deploy, and this repository's sessions
+never touch that host.
+
+**Measured in the path** (2026-11-23, through ArvanCloud's edge over HTTPS, to
+the stand-in):
+
+| Check | Result |
+|---|---|
+| A quiet request held 58 s | Answered. The 55 s collect fits |
+| The same, at the host's own front, without the CDN | Answered at 85 s, cut at 90 s |
+| Request body of 64 KB | Accepted. 900 KB was accepted over HTTP; the front's limit is 1 MB |
+| A 5 MB response | Complete in about 1 s |
+| Caching | `X-Cache: BYPASS` with `cache-control: no-store` |
+
+HTTP is redirected to HTTPS at the edge. Between the edge and the origin the
+certificate is still the origin's internal one, which the CDN accepts.
+
+## Bridge 2: the Worker
+
+`wrangler deploy` from `bridge/`. One Durable Object per box, SQLite-backed,
+which is the kind the free plan runs. It answers only on its own name;
+`workers.dev` is off, because that domain is filtered in Iran.
+
+**Known cost.** A Durable Object is billed for the time a request is held open,
+and a Receiver that collects around the clock holds one open almost
+continuously. The hold is 25 s here against 55 s on bridge 1, which does not
+change the total. Before real use this path needs a hibernating WebSocket or
+push, or the free plan's daily duration allowance goes to a handful of Receivers.
+
+## Adding a bridge
+
+Deploy `bridge/` anywhere that can run a Worker or the container, then add it to
+the bridge list. Today that list is `SEED_BRIDGES` in the Host's `Settings.kt`.
+The signed list that makes this a one-line change with no new APK is D17 and is
+not built.

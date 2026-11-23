@@ -1,34 +1,19 @@
-# Versions resolved from the live repositories on 2026-08-30, not from memory.
+# Versions resolved from the live repositories on 2026-11-23, not from memory.
 #
-# Deliberately one generation behind the newest. Compose 1.12, core-ktx 1.19 and
-# lifecycle 2.11 all require compiling against API 37, which is catalogued but
-# not installable from the stable SDK channel -- it sits next to
-# platforms;android-CANARY. Building a security product that runs unattended on a
-# phone holding bank OTPs against a preview API surface is not a trade worth
-# making to get a newer layout primitive. Revisit when 37 goes stable.
+# There is no AndroidX here on purpose. The Host's native core uses the platform
+# directly, and its screens are a web bundle (DECISIONS D19), so nothing ties
+# this build to an AndroidX generation.
 [versions]
-agp = "9.3.2"
-kotlin = "2.4.10"
-coreKtx = "1.18.0"
-lifecycle = "2.10.0"
-activityCompose = "1.12.4"
-composeBom = "2026.06.01"
+agp = "9.5.2"
 
 [libraries]
-tink-android = { module = "com.google.crypto.tink:tink-android", version = "1.23.0" }
+# HPKE (RFC 9180). The platform has no X25519 before API 33 and the Host
+# supports 26, so the suite has to come from a library.
+tink-android = { module = "com.google.crypto.tink:tink-android", version = "1.24.0" }
 junit = { module = "junit:junit", version = "4.13.2" }
 # Real org.json for unit tests. The android.jar stub throws "not mocked" on
 # every method, so any code path touching JSON is untestable without it.
 json = { module = "org.json:json", version = "20260814" }
-androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
-androidx-lifecycle-runtime-ktx = { module = "androidx.lifecycle:lifecycle-runtime-ktx", version.ref = "lifecycle" }
-androidx-lifecycle-service = { module = "androidx.lifecycle:lifecycle-service", version.ref = "lifecycle" }
-androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
-androidx-compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
-androidx-compose-material3 = { module = "androidx.compose.material3:material3" }
-androidx-compose-ui = { module = "androidx.compose.ui:ui" }
-androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
