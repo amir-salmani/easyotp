@@ -11,6 +11,10 @@ export interface LocalBridge {
   /** Requests seen, as "METHOD path". */
   log: string[];
   down: boolean;
+  /** Accepts connections and never answers, as a filtered bridge does. */
+  hung: boolean;
+  /** Every pairing message body this bridge was handed, as the bridge saw it. */
+  seen: string[];
 }
 
 export function localBridges(names: string[], holdMs = 50) {
@@ -28,7 +32,7 @@ export function localBridges(names: string[], holdMs = 50) {
         read: (slotId, after, hold) => slots.read(slotId, after, hold, Date.now()),
       },
     };
-    bridges.set(`https://${name}.test`, { url: `https://${name}.test`, log: [], down: false, store });
+    bridges.set(`https://${name}.test`, { url: `https://${name}.test`, log: [], down: false, hung: false, seen: [], store });
   }
 
   const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -36,7 +40,13 @@ export function localBridges(names: string[], holdMs = 50) {
     const url = new URL(req.url);
     const bridge = bridges.get(url.origin);
     if (!bridge || bridge.down) throw new TypeError("network error");
+    if (bridge.hung) {
+      return new Promise<Response>((_, reject) => {
+        req.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+      });
+    }
     bridge.log.push(`${req.method} ${url.pathname}`);
+    if (req.method === "POST" && url.pathname.startsWith("/v2/pair/")) bridge.seen.push(await req.clone().text());
     return handle(req, bridge.store, { pollHoldMs: holdMs });
   }) as typeof fetch;
 

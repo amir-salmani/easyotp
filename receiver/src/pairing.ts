@@ -4,57 +4,71 @@
  * Two people are on a phone call. The Host shows eight digits; one person reads
  * them out and the other types them here. The devices then exchange three
  * messages through the bridges, and each shows a picture. If the pictures
- * match, the Host really received this Receiver's key.
+ * match, the Host really received this Receiver's key, and nobody else did.
  *
- *   1. Host      commit   SHA-256(hostNonce)
- *   2. Receiver  offer    public key, box id, label, receiverNonce
- *   3. Host      reveal   hostNonce, label
+ *   1. Host      commit   SHA-256(hostNonce), and a one-time public key
+ *   2. Receiver  offer    sealed to that key: public key, box id, name, receiverNonce
+ *   3. Host      reveal   hostNonce, name, and which offer it answers
  *
- *   picture = SHA-256(code, hostNonce, receiverNonce, public key, box id)
+ *   picture = SHA-256(code, both nonces, public key, box id, one-time key, both names)
  *
- * The order is the security. A bridge that swaps in its own key at step 2 has
+ * Two things rest on the order.
+ *
+ * The key cannot be swapped. A bridge that puts its own key in the offer has
  * to do so before the Host's nonce is revealed, and it cannot change the nonce
  * the Receiver accepts afterwards, because the Receiver already holds its
  * commitment. So it cannot steer the two pictures to match: it gets one blind
  * try in 512, and a failed try is two people looking at different pictures.
  *
+ * The key is not shown to the bridges. HPKE base mode lets anyone who knows a
+ * Receiver's public key seal a message that opens on it, so the offer is
+ * sealed to the Host's one-time key. A bridge can replace that key with its
+ * own to read the offer, but the one-time key is in the picture, so that is
+ * the same one blind try.
+ *
  * The code itself is not a secret from a bridge, which can guess all hundred
  * million from the slot id. Nothing rests on it.
  */
-import { b64url, fromB64url } from "./open";
+import { b64url, fromB64url, newKeyPair, openBytes, sealBytes } from "./open";
 import { sha256, slotIdFrom } from "./ids";
 import { pictureFrom, type Picture } from "./pictures";
 
 export type Fetch = typeof fetch;
 
 export class PairingError extends Error {
-  constructor(readonly reason: "unreachable" | "timeout" | "tampered" | "bad_code") {
+  constructor(readonly reason: "unreachable" | "timeout" | "tampered" | "bad_code" | "cancelled") {
     super(reason);
   }
 }
 
-interface Commit { t: "commit"; c: string }
-interface Offer { t: "offer"; pk: string; box: string; label: string; n: string }
-interface Reveal { t: "reveal"; n: string; label: string }
+interface Commit { t: "commit"; c: string; e: string }
+interface Offer { t: "offer"; enc: string; ct: string }
+interface Reveal { t: "reveal"; n: string; label: string; o: string }
 type Wire = Commit | Offer | Reveal;
+
+/** What an offer carries once opened. */
+interface OfferBody { pk: string; box: string; label: string; n: string }
 
 export const CODE_SHAPE = /^[0-9]{8}$/;
 const KEY_SHAPE = /^[A-Za-z0-9_-]{43}$/;
 const NONCE_SHAPE = /^[A-Za-z0-9_-]{22,43}$/;
+const B64URL = /^[A-Za-z0-9_-]+$/;
+const MAX_LABEL = 40;
 
-const encode = (m: Wire) => b64url(new TextEncoder().encode(JSON.stringify(m)));
+const utf8 = (s: string) => new TextEncoder().encode(s);
+const encode = (m: Wire) => b64url(utf8(JSON.stringify(m)));
+/** Names are shown to a person, so they are short and carry no control characters. */
+const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f\\u2028\\u2029]", "g");
+const cleanLabel = (x: unknown) => (typeof x === "string" ? x.replace(CONTROL, "").slice(0, MAX_LABEL) : "");
 
 function decode(data: string): Wire | null {
   try {
     const m = JSON.parse(new TextDecoder().decode(fromB64url(data))) as Record<string, unknown>;
-    const label = typeof m.label === "string" ? m.label.slice(0, 64) : "";
-    if (m.t === "commit" && typeof m.c === "string" && KEY_SHAPE.test(m.c)) return { t: "commit", c: m.c };
-    if (m.t === "reveal" && typeof m.n === "string" && NONCE_SHAPE.test(m.n)) return { t: "reveal", n: m.n, label };
-    if (
-      m.t === "offer" && typeof m.pk === "string" && KEY_SHAPE.test(m.pk) &&
-      typeof m.box === "string" && KEY_SHAPE.test(m.box) && typeof m.n === "string" && NONCE_SHAPE.test(m.n)
-    ) {
-      return { t: "offer", pk: m.pk, box: m.box, label, n: m.n };
+    const is = (x: unknown, shape: RegExp): x is string => typeof x === "string" && shape.test(x);
+    if (m.t === "commit" && is(m.c, KEY_SHAPE) && is(m.e, KEY_SHAPE)) return { t: "commit", c: m.c, e: m.e };
+    if (m.t === "offer" && is(m.enc, KEY_SHAPE) && is(m.ct, B64URL)) return { t: "offer", enc: m.enc, ct: m.ct };
+    if (m.t === "reveal" && is(m.n, NONCE_SHAPE) && is(m.o, KEY_SHAPE)) {
+      return { t: "reveal", n: m.n, label: cleanLabel(m.label), o: m.o };
     }
   } catch {
     // Anything unreadable is not a pairing message. Anyone can write to a slot.
@@ -62,11 +76,32 @@ function decode(data: string): Wire | null {
   return null;
 }
 
+function offerBody(bytes: Uint8Array): OfferBody | null {
+  try {
+    const m = JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>;
+    if (typeof m.pk === "string" && KEY_SHAPE.test(m.pk) && typeof m.box === "string" && KEY_SHAPE.test(m.box) &&
+        typeof m.n === "string" && NONCE_SHAPE.test(m.n)) {
+      return { pk: m.pk, box: m.box, label: cleanLabel(m.label), n: m.n };
+    }
+  } catch {
+    // Falls through.
+  }
+  return null;
+}
+
+/** Long enough for a bridge's longest hold, with room. */
+const READ_TIMEOUT_MS = 70_000;
+const POST_TIMEOUT_MS = 15_000;
+/** A bridge that answers at once with nothing is not asked again sooner than this. */
+const MIN_POLL_MS = 1000;
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
 /** The same slot on every bridge. Whichever bridge carries a message first wins. */
 class Channel {
   private cursors = new Map<string, number>();
-  private closed = false;
-
+  private epochs = new Map<string, number>();
+  private abort = new AbortController();
   private fetch: Fetch;
 
   constructor(
@@ -80,60 +115,95 @@ class Channel {
     this.fetch = (input, init) => fetchImpl(input, init);
   }
 
-  close(): void {
-    this.closed = true;
+  get closed(): boolean {
+    return this.abort.signal.aborted;
   }
 
-  /** Posts to every bridge. One taking it is enough. */
+  /** Stops everything in flight. Nothing is sent after this. */
+  close(): void {
+    this.abort.abort();
+  }
+
+  private signal(timeoutMs: number): AbortSignal {
+    return AbortSignal.any([this.abort.signal, AbortSignal.timeout(timeoutMs)]);
+  }
+
+  /** Posts to every bridge and returns as soon as one has taken it. */
   async send(message: Wire): Promise<void> {
+    if (this.closed) throw new PairingError("cancelled");
     const body = JSON.stringify({ v: 2, from: this.from, data: encode(message) });
-    const results = await Promise.all(
-      this.bridges.map((b) =>
-        this.fetch(`${b}/v2/pair/${this.slotId}`, { method: "POST", body }).then((r) => r.ok, () => false),
-      ),
-    );
-    if (!results.some(Boolean)) throw new PairingError("unreachable");
+    const post = async (bridge: string) => {
+      const res = await this.fetch(`${bridge}/v2/pair/${this.slotId}`, { method: "POST", body, signal: this.signal(POST_TIMEOUT_MS) });
+      if (!res.ok) throw new Error();
+    };
+    await Promise.any(this.bridges.map(post)).catch(() => {
+      throw new PairingError(this.closed ? "cancelled" : "unreachable");
+    });
   }
 
   /** The first message from the other side that `pick` accepts, from any bridge. */
-  async waitFor<T extends Wire>(pick: (m: Wire) => T | null, timeoutMs: number): Promise<T> {
+  async waitFor<T>(pick: (m: Wire) => Promise<T | null> | T | null, timeoutMs: number): Promise<T> {
     const deadline = Date.now() + timeoutMs;
     const other = this.from === "host" ? "receiver" : "host";
     const listen = async (bridge: string): Promise<T> => {
       for (;;) {
-        if (this.closed || Date.now() >= deadline) throw new PairingError("timeout");
-        let messages: Array<{ seq: number; from: string; data: string }> = [];
+        if (this.closed) throw new PairingError("cancelled");
+        if (Date.now() >= deadline) throw new PairingError("timeout");
+        const asked = Date.now();
+        let view: { epoch: number; messages: Array<{ seq: number; from: string; data: string }> };
         try {
           const after = this.cursors.get(bridge) ?? 0;
-          const res = await this.fetch(`${bridge}/v2/pair/${this.slotId}?after=${after}`);
+          const res = await this.fetch(`${bridge}/v2/pair/${this.slotId}?after=${after}`, { signal: this.signal(READ_TIMEOUT_MS) });
           if (!res.ok) throw new Error();
-          messages = ((await res.json()) as { messages: typeof messages }).messages;
+          view = (await res.json()) as typeof view;
         } catch {
           // A bridge that is down must not end the pairing; the other may be up.
-          await new Promise((r) => setTimeout(r, 1500));
+          if (!this.closed) await sleep(1500);
           continue;
         }
-        for (const m of messages) {
+        if (view.epoch !== (this.epochs.get(bridge) ?? 0)) {
+          // The slot was replaced: it expired, or the bridge restarted. Its
+          // messages are numbered from 1 again, so this side starts over too.
+          this.epochs.set(bridge, view.epoch);
+          if ((this.cursors.get(bridge) ?? 0) > 0) {
+            this.cursors.set(bridge, 0);
+            continue;
+          }
+        }
+        for (const m of view.messages) {
           this.cursors.set(bridge, Math.max(this.cursors.get(bridge) ?? 0, m.seq));
-          const picked = m.from === other ? decode(m.data) : null;
-          const wanted = picked && pick(picked);
+          const wire = m.from === other ? decode(m.data) : null;
+          const wanted = wire && (await pick(wire));
           if (wanted) return wanted;
         }
+        const took = Date.now() - asked;
+        if (!view.messages.length && took < MIN_POLL_MS) await sleep(MIN_POLL_MS - took);
       }
     };
-    return Promise.any(this.bridges.map(listen)).catch(() => {
-      throw new PairingError("timeout");
+    return Promise.any(this.bridges.map(listen)).catch((e: AggregateError) => {
+      throw e.errors.find((x) => x instanceof PairingError) ?? new PairingError("timeout");
     });
   }
 }
 
-async function pictureOf(code: string, hostNonce: string, receiverNonce: string, pk: string, box: string) {
-  return pictureFrom(
-    await sha256("easyotp/pair-sas/v1", code, fromB64url(hostNonce), fromB64url(receiverNonce), fromB64url(pk), fromB64url(box)),
-  );
+/**
+ * Every field on its own line, so no two different sets of fields can produce
+ * the same bytes. Names are base64, so a name cannot contain a line break.
+ */
+async function pictureOf(f: {
+  code: string; hostNonce: string; receiverNonce: string; pk: string; box: string;
+  oneTimeKey: string; hostLabel: string; receiverLabel: string;
+}): Promise<Picture> {
+  const lines = [
+    "easyotp/pair-sas/v2", f.code, f.hostNonce, f.receiverNonce, f.pk, f.box, f.oneTimeKey,
+    b64url(utf8(f.hostLabel)), b64url(utf8(f.receiverLabel)),
+  ];
+  return pictureFrom(await sha256(lines.join("\n")));
 }
 
 const commitmentOf = async (hostNonce: string) => b64url(await sha256("easyotp/pair-commit/v1", fromB64url(hostNonce)));
+/** Which offer a reveal answers, so a reveal left over from another attempt is ignored. */
+const offerId = async (offer: Offer) => b64url(await sha256("easyotp/pair-offer/v1", `${offer.enc}\n${offer.ct}`));
 
 export interface ReceiverOffer {
   publicKey: string;
@@ -145,7 +215,7 @@ export interface ReceiverOffer {
 export interface PairingResult {
   /** Show this. The pairing counts only once both people say theirs is the same. */
   picture: Picture;
-  /** What the other side calls itself. Not verified by anything but the picture. */
+  /** What the other side calls itself. Part of the picture, so it is as trustworthy as the picture. */
   peerLabel: string;
 }
 
@@ -158,22 +228,30 @@ export async function pairAsReceiver(opts: {
   offer: ReceiverOffer;
   fetch?: Fetch;
   timeoutMs?: number;
-  /** Abort to stop waiting, when the person gives up. */
+  /** Abort to stop at once, when the person gives up. Nothing is sent afterwards. */
   signal?: AbortSignal;
 }): Promise<PairingResult> {
   if (!CODE_SHAPE.test(opts.code)) throw new PairingError("bad_code");
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const channel = new Channel(opts.bridges, await slotIdFrom(opts.code), "receiver", opts.fetch ?? fetch);
   opts.signal?.addEventListener("abort", () => channel.close());
+  if (opts.signal?.aborted) channel.close();
   try {
     // The commitment must be in hand before this side says anything.
     const commit = await channel.waitFor((m) => (m.t === "commit" ? m : null), timeout);
     const nonce = b64url(crypto.getRandomValues(new Uint8Array(16)));
-    await channel.send({ t: "offer", pk: opts.offer.publicKey, box: opts.offer.boxId, label: opts.offer.label, n: nonce });
-    const reveal = await channel.waitFor((m) => (m.t === "reveal" ? m : null), timeout);
+    const label = cleanLabel(opts.offer.label);
+    const body: OfferBody = { pk: opts.offer.publicKey, box: opts.offer.boxId, label, n: nonce };
+    const offer: Offer = { t: "offer", ...(await sealBytes(commit.e, utf8(JSON.stringify(body)))) };
+    const mine = await offerId(offer);
+    await channel.send(offer);
+    const reveal = await channel.waitFor((m) => (m.t === "reveal" && m.o === mine ? m : null), timeout);
     if ((await commitmentOf(reveal.n)) !== commit.c) throw new PairingError("tampered");
     return {
-      picture: await pictureOf(opts.code, reveal.n, nonce, opts.offer.publicKey, opts.offer.boxId),
+      picture: await pictureOf({
+        code: opts.code, hostNonce: reveal.n, receiverNonce: nonce, pk: body.pk, box: body.box,
+        oneTimeKey: commit.e, hostLabel: reveal.label, receiverLabel: label,
+      }),
       peerLabel: reveal.label,
     };
   } finally {
@@ -182,8 +260,8 @@ export async function pairAsReceiver(opts: {
 }
 
 /**
- * The Host's side, as the Host app does it in Kotlin. Here for the tests and
- * for `tools/fake-host.mjs`, which stands in for a phone.
+ * The Host's side, as the Host app will do it in Kotlin. Here for the tests and
+ * for `tools/fake-host.ts`, which stands in for a phone.
  */
 export async function pairAsHost(opts: {
   bridges: readonly string[];
@@ -197,14 +275,25 @@ export async function pairAsHost(opts: {
   const channel = new Channel(opts.bridges, await slotIdFrom(opts.code), "host", opts.fetch ?? fetch);
   try {
     const nonce = b64url(crypto.getRandomValues(new Uint8Array(32)));
-    await channel.send({ t: "commit", c: await commitmentOf(nonce) });
-    const offer = await channel.waitFor((m) => (m.t === "offer" ? m : null), timeout);
+    // Made for this one pairing and dropped after it.
+    const oneTime = await newKeyPair();
+    const label = cleanLabel(opts.label);
+    await channel.send({ t: "commit", c: await commitmentOf(nonce), e: oneTime.publicKey });
+    // The first offer that opens. Anything else in the slot is someone else's noise.
+    const got = await channel.waitFor(async (m) => {
+      if (m.t !== "offer") return null;
+      const body = await openBytes(oneTime.privateKey, m.enc, m.ct).then(offerBody, () => null);
+      return body && { body, id: await offerId(m) };
+    }, timeout);
     // Only now, with the offer fixed, is the nonce given away.
-    await channel.send({ t: "reveal", n: nonce, label: opts.label });
+    await channel.send({ t: "reveal", n: nonce, label, o: got.id });
     return {
-      picture: await pictureOf(opts.code, nonce, offer.n, offer.pk, offer.box),
-      peerLabel: offer.label,
-      receiver: { publicKey: offer.pk, boxId: offer.box, label: offer.label },
+      picture: await pictureOf({
+        code: opts.code, hostNonce: nonce, receiverNonce: got.body.n, pk: got.body.pk, box: got.body.box,
+        oneTimeKey: oneTime.publicKey, hostLabel: label, receiverLabel: got.body.label,
+      }),
+      peerLabel: got.body.label,
+      receiver: { publicKey: got.body.pk, boxId: got.body.box, label: got.body.label },
     };
   } finally {
     channel.close();
