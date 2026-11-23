@@ -52,6 +52,17 @@ export function Pair(props: {
   const [step, setStep] = useState<Step>({ at: "enter" });
   const [code, setCode] = useState("");
   const [label, setLabel] = useState(t.pairLabelDefault);
+  const [saving, setSaving] = useState(false);
+
+  /**
+   * Back to the start with an empty code. A code is used once: the slot it
+   * names still holds this attempt's messages, and a second attempt with the
+   * same digits would be answered by the first one's leftovers.
+   */
+  const startOver = (error?: string) => {
+    setCode("");
+    setStep({ at: "enter", error });
+  };
   const abort = useRef<AbortController | null>(null);
   const Forward = lang === "fa" ? ArrowLeft : ArrowRight;
 
@@ -71,14 +82,14 @@ export function Pair(props: {
     } catch (e) {
       if (signal.aborted) return;
       const reason = e instanceof PairingError ? e.reason : "unreachable";
-      const error = { bad_code: t.errBadCode, timeout: t.errTimeout, unreachable: t.errUnreachable, tampered: t.errTampered }[reason];
-      setStep({ at: "enter", error });
+      const error = { bad_code: t.errBadCode, timeout: t.errTimeout, unreachable: t.errUnreachable, tampered: t.errTampered, cancelled: undefined }[reason];
+      startOver(error);
     }
   };
 
   const cancel = () => {
     abort.current?.abort();
-    setStep({ at: "enter" });
+    startOver();
   };
 
   if (step.at === "waiting") {
@@ -109,15 +120,23 @@ export function Pair(props: {
         <PictureCard result={step.result} lang={lang} />
         {step.result.peerLabel && <p className="text-muted-foreground">{t.pictureHost(step.result.peerLabel)}</p>}
         <Button
+          disabled={saving}
           onClick={async () => {
-            await props.onPaired(step.result.peerLabel);
-            setStep({ at: "done", host: step.result.peerLabel });
+            setSaving(true);
+            try {
+              await props.onPaired(step.result.peerLabel);
+              setStep({ at: "done", host: step.result.peerLabel });
+            } catch {
+              startOver(t.errStorage);
+            } finally {
+              setSaving(false);
+            }
           }}
         >
           <Check aria-hidden size={22} strokeWidth={2} />
           {t.pictureSame}
         </Button>
-        <Button variant="danger" onClick={() => setStep({ at: "enter", error: t.errDifferent })}>
+        <Button variant="danger" disabled={saving} onClick={() => startOver(t.errDifferent)}>
           <X aria-hidden size={22} strokeWidth={2} />
           {t.pictureDifferent}
         </Button>

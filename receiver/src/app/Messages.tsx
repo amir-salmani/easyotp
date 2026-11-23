@@ -20,7 +20,7 @@ function MessageCard({ m, t, lang, now }: { m: Message; t: Strings; lang: Lang; 
           <span className="font-semibold text-foreground">{`\u2066${m.from}\u2069`}</span>{" "}
           · {m.sim}
         </span>
-        <time dateTime={new Date(m.at).toISOString()}>{when(m.at, now, lang)}</time>
+        <time>{when(m.at, now, lang)}</time>
       </div>
       {m.code && (
         <div className="flex items-center justify-between gap-3 rounded-lg bg-muted p-3">

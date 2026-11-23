@@ -119,8 +119,7 @@ export function App() {
         header={header}
         canCancel={hosts > 0}
         onPaired={async (label) => {
-          await ready.db.addHost({ label, pairedAt: Date.now() });
-          setHosts((n) => n + 1);
+          setHosts((await ready.db.addHost({ label, pairedAt: Date.now() })).length);
           setPairing(true);
         }}
         onClose={() => setPairing(false)}

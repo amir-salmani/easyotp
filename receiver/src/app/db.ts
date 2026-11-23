@@ -77,7 +77,23 @@ export class Db implements InboxStore {
   setLang = (lang: Lang) => this.set("lang", lang);
 
   hosts = async () => (await this.get<PairedHost[]>("hosts")) ?? [];
-  addHost = async (host: PairedHost) => this.set("hosts", [...(await this.hosts()), host]);
+
+  /** Adds a Host and returns the whole list. Read and write in one transaction, so two taps cannot both win. */
+  addHost(host: PairedHost): Promise<PairedHost[]> {
+    return new Promise((resolve, reject) => {
+      const tx = this.db.transaction(KV, "readwrite");
+      const store = tx.objectStore(KV);
+      let next: PairedHost[] = [];
+      const read = store.get("hosts");
+      read.onsuccess = () => {
+        next = [...((read.result as PairedHost[] | undefined) ?? []), host];
+        store.put(next, "hosts");
+      };
+      tx.oncomplete = () => resolve(next);
+      tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error);
+    });
+  }
 
   has = async (id: string) => (await run<number>(this.db, MESSAGES, "readonly", (s) => s.count(id))) > 0;
   put = async (message: Message) => void (await run(this.db, MESSAGES, "readwrite", (s) => s.put(message)));
