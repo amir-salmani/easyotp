@@ -17,7 +17,8 @@ import { join } from "node:path";
 import { chromium } from "playwright";
 import { boxIdFrom, randomKey } from "../src/ids";
 import { newKeyPair, seal, type Message } from "../src/open";
-import { newCode, pairAsHost } from "../src/pairing";
+import { newCode } from "../src/pairing";
+import { simHost, type SimHost } from "./sim-host";
 import { COLOURS, THINGS } from "../src/pictures";
 
 const SHOTS = "e2e-shots";
@@ -69,10 +70,12 @@ async function main() {
   await page.getByRole("heading", { name: "اتصال به گوشی فرستنده" }).waitFor();
   await shot("2-pair");
 
+  const sims: SimHost[] = [];
   /** Pairs with a new Host from whatever screen offers the code field. */
   const pairWith = async (hostName: string) => {
     const code = newCode();
-    const host = pairAsHost({ bridges: BRIDGES, code, label: hostName, timeoutMs: 30_000 });
+    const rings: string[] = [];
+    const host = simHost({ bridges: BRIDGES, code, label: hostName, timeoutMs: 30_000, every: 5, onCommand: (cmd) => rings.push(cmd) });
     await page.locator("#code").fill(code);
     await page.locator("#label").fill("آیفون امیر");
     await page.getByRole("button", { name: "ادامه" }).click();
@@ -82,7 +85,8 @@ async function main() {
     assert.equal(await page.getByRole("img").getAttribute("aria-label"), expected, "the Receiver shows the Host's picture");
     assert.equal(paired.peerLabel, "آیفون امیر");
     await page.getByText(`گوشی فرستنده: ${hostName}`).waitFor();
-    return paired;
+    sims.push(paired);
+    return Object.assign(paired, { rings });
   };
   const confirm = async () => {
     await page.getByRole("button", { name: "بله، همین است" }).click();
@@ -104,10 +108,35 @@ async function main() {
   await shot("3-picture");
   await confirm();
   await page.getByRole("heading", { name: "هنوز پیامی نرسیده است" }).waitFor();
+  assert.equal(await page.getByRole("button", { name: "اتصال به فرستنده‌ی دیگر" }).count(), 0, "no pairing button under the messages");
+  await page.getByText("هنوز خبری از این گوشی نرسیده است").waitFor();
   await shot("4-empty");
 
+  // The Host starts reporting on itself: alive, battery, network.
+  mum.start();
+  await page.getByText(/زنده است · آخرین خبر/).waitFor();
+  await page.getByText("باتری ۸۲٪ · در شارژ").waitFor();
+  await page.getByText("وای‌فای").waitFor();
+  await shot("4b-monitor");
+
+  // Ask it to ring. The phone rings once and says so.
+  await page.getByRole("button", { name: "زنگ بزن" }).click();
+  await page.getByText("گوشی زنگ زد").waitFor();
+  assert.deepEqual(mum.rings, ["buzz"]);
+
+  // A dying battery, off the charger, is said in words.
+  await mum.sendStatus({ battery: 12, charging: false });
+  await page.getByText("باتری کم است و گوشی به شارژ وصل نیست.").waitFor();
+  await shot("4c-low-battery");
+
+  // A phone that stops reporting is called silent, not left looking alive.
+  mum.stop();
+  await page.getByText(/بی‌خبر است · آخرین خبر/).waitFor({ timeout: 40_000 });
+  await page.getByRole("button", { name: "خبر تازه" }).click();
+  await page.getByText("در حال رساندن به گوشی").waitFor();
+
   // 4. The Host leaves one message at both bridges. It is shown once.
-  await send(mum.receiver, "رمز پویا: 48217365 مبلغ 250000 ریال", "48217365");
+  await mum.sendSms("رمز پویا: 48217365 مبلغ 250000 ریال", "48217365", "همراه اول");
   await page.getByText("48217365", { exact: true }).waitFor();
   await page.waitForTimeout(3000); // long enough for the second bridge to deliver its copy
   assert.equal(await page.getByText("48217365", { exact: true }).count(), 1, "one card though two bridges delivered");
@@ -137,12 +166,13 @@ async function main() {
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "48217365");
 
   // 6. A second Host, with its own keys and its own box.
+  await page.getByRole("button", { name: "فرستنده‌ها و تنظیمات" }).click();
   await page.getByRole("button", { name: "اتصال به فرستنده‌ی دیگر" }).click();
   const dad = await pairWith("گوشی بابا");
   await confirm();
   assert.notEqual(dad.receiver.boxId, mum.receiver.boxId, "each Host is given a different box");
   assert.notEqual(dad.receiver.publicKey, mum.receiver.publicKey, "and a different key");
-  await send(dad.receiver, "کد تایید: 7731", "7731");
+  await dad.sendSms("کد تایید: 7731", "7731", "همراه اول");
   await page.getByText("7731", { exact: true }).waitFor();
   await page.getByText("۲ فرستنده").waitFor();
   // With two Hosts each card says whose it is, and the list can be narrowed to one.
@@ -177,7 +207,7 @@ async function main() {
   assert.equal(await page.getByText("48217365", { exact: true }).count(), 0, "a removed Host's messages are gone");
   await page.getByText("7731", { exact: true }).waitFor();
   // What is sent to a removed Host's box is no longer collected.
-  await send(mum.receiver, "کد: 9090", "9090");
+  await mum.sendSms("کد: 9090", "9090", "همراه اول");
   await page.waitForTimeout(3000);
   assert.equal(await page.getByText("9090", { exact: true }).count(), 0, "nothing is collected for a removed Host");
 
@@ -237,6 +267,7 @@ async function main() {
   await legacyPage.getByRole("button", { name: "تغییر نام: Fake Host" }).waitFor();
   await legacyPage.screenshot({ path: `${SHOTS}/10-upgraded.png`, fullPage: true });
 
+  sims.forEach((sim) => sim.stop());
   assert.deepEqual(errors, [], "no script errors on any screen");
   await browser.close();
   console.log(`e2e passed. Screenshots in ${SHOTS}/`);
@@ -247,7 +278,7 @@ setTimeout(() => {
   console.error("e2e timed out");
   children.forEach((c) => c.kill());
   process.exit(1);
-}, 150_000).unref();
+}, 240_000).unref();
 
 main()
   .catch((e) => {
