@@ -135,7 +135,8 @@ that are three messages through a pairing slot on the bridges (D24). Pairing
 gives the Host a Receiver's public key and box id.
 
 A slot is found by an id derived from the code, holds at most eight small
-messages for ten minutes, and is never written to disk.
+messages for ten minutes, and is never written to disk. Only a post creates
+one; a read of a slot nobody has posted to is answered after a short wait.
 
 The Receiver's side is built. The Host app's side is not: until it is,
 `npm run fake-host` in `receiver/` stands in for a phone.

@@ -596,12 +596,13 @@ where the two devices meet on the bridges. Three messages follow:
 
 | # | From | Carries |
 |---|---|---|
-| 1 | Host | a commitment: the hash of a nonce it has not shown yet |
-| 2 | Receiver | its public key, its box id, its name, and a nonce of its own |
-| 3 | Host | the nonce it committed to, and its name |
+| 1 | Host | a commitment (the hash of a nonce it has not shown yet) and a one-time public key |
+| 2 | Receiver | sealed to that one-time key: its public key, its box id, its name, a nonce of its own |
+| 3 | Host | the nonce it committed to, its name, and which offer it is answering |
 
-Both then show `SHA-256(code, host nonce, receiver nonce, public key, box id)`
-as one of 8 colours and one of 64 things, named in Persian and English.
+Both then show a hash of the code, both nonces, the public key, the box id, the
+one-time key and both names, as one of 8 colours and one of 64 things, named in
+Persian and English.
 
 **Rejected:** a picture computed from the code and the key alone; treating the
 eight digits as a secret; a password-authenticated key exchange.
@@ -618,6 +619,22 @@ The eight digits are not secret from a bridge, which can try all hundred
 million against the slot id. Nothing rests on them. A password-authenticated
 exchange would make them count, at the price of a second cryptographic
 construction in two languages; the picture gives the property with a hash.
+
+**The Receiver's key stays between the two devices.** HPKE base mode lets
+anyone who knows a Receiver's public key seal a message that opens on it, so a
+bridge that saw the key at pairing could forge an SMS for ever after. The offer
+is therefore sealed to the Host's one-time key. A bridge can replace that key
+with its own to read the offer, but the one-time key is in the picture, so
+reading costs the same one blind try as swapping. The first version of this
+exchange sent the offer in the clear; a review caught it before any phone was
+paired.
+
+**Names are in the picture** because they are shown beside the confirm button,
+and a bridge that could rewrite one could write instructions there.
+
+**A code is used once.** The slot it names keeps an attempt's messages for ten
+minutes, so the Receiver clears the code after any failure and the reveal names
+the offer it answers.
 
 **The cost, stated:** one try in 512. That is weaker than the six-digit
 comparisons other products use, and it was chosen because what is compared is

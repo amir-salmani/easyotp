@@ -27,7 +27,7 @@ screen.** That is still the most important fact on this page.
 | Bridge | Deposit, collect with hold, acknowledge, expiry, limits, key-only access | Tests on the Workers runtime and on Node |
 | Bridge image | Runs unprivileged, read-only, 256 MB, clean exit on SIGTERM | CI runs it that way before publishing |
 | Receiver library | Opens a sealed message, refuses a changed or re-labelled one | Unit tests |
-| Pairing | Receiver's side, and the Host's side in TypeScript. A bridge that swaps the key or changes the nonce is caught | Unit tests against the real bridge code |
+| Pairing | Receiver's side, and the Host's side in TypeScript. The Receiver's key travels sealed. A bridge that swaps the key, reads it, renames a side or changes the nonce is caught | Unit tests against the real bridge code |
 | Receiver web app | Install gate, pairing, messages shown once, copy, Persian and English | A browser test against two local bridges: `npm run e2e` |
 | Host to Receiver | A message sealed by the Host's code opens in the Receiver's code | Fixture regenerated in CI every run |
 | Build | Signed Host APK and bridge image from GitHub Actions | `build.yml` |
@@ -68,6 +68,7 @@ screen.** That is still the most important fact on this page.
 | Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first release |
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message | With pairing |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
+| The service worker is not exercised by any test | The browser test runs a development build, which registers none. Opening offline was checked by reading only | With the first production browser test |
 | No rate limit on deposit | A known box id can be flooded until its oldest messages fall out | With bridge 2's deploy |
 | SIM identity on Android 10+ | An ordinary app gets an empty ICCID there, so the route is keyed by subscription id. That it stays with its SIM across reboots and re-insertion is assumed, not seen | Step 3, on a dual-SIM phone |
 | No automated test of the outbox, the drain loop or the settings store | They need Android's SQLite and Keystore. Retry timing, dead rows and the unreadable-settings guard are checked by reading only | With the first on-device test run |
