@@ -28,7 +28,7 @@ screen.** That is still the most important fact on this page.
 | Bridge image | Runs unprivileged, read-only, 256 MB, clean exit on SIGTERM | CI runs it that way before publishing |
 | Receiver library | Opens a sealed message, refuses a changed or re-labelled one | Unit tests |
 | Pairing | Receiver's side, and the Host's side in TypeScript. The Receiver's key travels sealed. A bridge that swaps the key, reads it, renames a side or changes the nonce is caught | Unit tests against the real bridge code |
-| Receiver web app | Install gate, pairing, several Hosts each with its own keys, messages shown once, copy, a side panel with Hosts, settings and help, Persian and English, upgrade from the first version | A browser test against two local bridges: `npm run e2e`. Paired and received on an iPhone on 2026-11-23, with the stand-in Host |
+| Receiver web app | Install gate, pairing, several Hosts each with its own keys, a monitor per Host (alive, battery, network, ring), messages shown once, copy, a side panel with Hosts, settings and help, Persian and English, upgrade from the first version | A browser test against two local bridges: `npm run e2e`. Paired and received on an iPhone on 2026-11-23, with the stand-in Host |
 | Host to Receiver | A message sealed by the Host's code opens in the Receiver's code | Fixture regenerated in CI every run |
 | Build | Signed Host APK and bridge image from GitHub Actions | `build.yml` |
 
@@ -39,7 +39,7 @@ screen.** That is still the most important fact on this page.
 - The Receiver APK.
 - The Host's screens, wizard, health checks and self-test (D19, ARCHITECTURE 7).
 - The signed bundle and config loader, and the signed bridge list (D17, D19).
-- Heartbeat with battery and charger state.
+- **The Host app's reports and commands (D26).** The Receiver shows a monitor and a ring button; only the simulator answers them.
 - The dormant self-update (D19).
 
 ## 3. Deployed
