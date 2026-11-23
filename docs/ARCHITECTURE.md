@@ -121,8 +121,13 @@ there (D15).
 | `src/inbox.ts` | Collects from every bridge, shows a message once, acknowledges only after it is stored |
 | `src/app/` | The screens, and `db.ts`: keys, pairings and messages in IndexedDB on the device |
 
-The private key and the box key are made on first use and exist only in that
-device's storage. There is no account and no export.
+Every paired Host gets its own key pair and its own box (D25), made when the
+pairing starts and kept only if the picture is confirmed. They exist only in
+that device's storage. There is no account and no export. Removing a Host
+deletes its keys and its messages together.
+
+Behind a gear on the message list is a side panel: the Hosts, with rename and
+remove; language, notifications and deleting all messages; and the help.
 
 A notification appears only while the app is open or in the background. Waking
 a closed app needs web push, which is not built. The Android shell is not built.

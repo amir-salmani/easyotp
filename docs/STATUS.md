@@ -28,7 +28,7 @@ screen.** That is still the most important fact on this page.
 | Bridge image | Runs unprivileged, read-only, 256 MB, clean exit on SIGTERM | CI runs it that way before publishing |
 | Receiver library | Opens a sealed message, refuses a changed or re-labelled one | Unit tests |
 | Pairing | Receiver's side, and the Host's side in TypeScript. The Receiver's key travels sealed. A bridge that swaps the key, reads it, renames a side or changes the nonce is caught | Unit tests against the real bridge code |
-| Receiver web app | Install gate, pairing, messages shown once, copy, Persian and English | A browser test against two local bridges: `npm run e2e` |
+| Receiver web app | Install gate, pairing, several Hosts each with its own keys, messages shown once, copy, a side panel with Hosts, settings and help, Persian and English, upgrade from the first version | A browser test against two local bridges: `npm run e2e`. Paired and received on an iPhone on 2026-11-23, with the stand-in Host |
 | Host to Receiver | A message sealed by the Host's code opens in the Receiver's code | Fixture regenerated in CI every run |
 | Build | Signed Host APK and bridge image from GitHub Actions | `build.yml` |
 
@@ -48,7 +48,7 @@ screen.** That is still the most important fact on this page.
 |---|---|
 | Bridge 1 | Live, with pairing. Its host took the new `live` image by itself about six minutes after `main` built. `npm run live-check` paired and delivered a message through it |
 | Bridge 2 | Live, with pairing. Deployed by hand: `wrangler deploy` from `bridge/` |
-| Receiver web app | Live at `pwa.easyotp.rhinocloud.ir`. Deployed by hand: `npm run deploy` from `receiver/`. Not yet installed on a real phone |
+| Receiver web app | Live at `pwa.easyotp.rhinocloud.ir`. Deployed by hand: `npm run deploy` from `receiver/` |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
 | A release | None. No tag has been cut |
 

@@ -648,3 +648,31 @@ people and ends the pairing.
 **Built:** the Receiver's side, and the Host's side in TypeScript for the tests
 and the stand-in Host. **Not built:** the Host app's side in Kotlin.
 
+---
+
+## D25 — A Receiver makes new keys and a new box for every Host (2026-11-23)
+
+**Chosen:** each pairing gets its own key pair and its own box. A Receiver
+listening to three Hosts holds three private keys and collects from three boxes.
+
+**Rejected:** one identity per Receiver, offered to every Host, which is how the
+first version worked.
+
+**Why:** with one box, nothing says which Host a message came from, so a
+Receiver could not name the sender or show one Host's messages alone. With one
+key, removing a Host removed nothing: that Host could go on sealing messages
+this device would open. Separate keys make removal final. The Host's keys are
+deleted with it, and whatever is sent to its box afterwards is never collected
+and could not be opened if it were.
+
+It also keeps Hosts from learning anything about each other. Two Hosts paired
+to the same Receiver hold different keys and different box ids, and neither can
+tell that the other exists.
+
+**Cost:** one held request per Host per bridge while the app is open.
+
+**Upgrading:** a device paired under the first version had one identity and a
+list of Host names. On first launch they become a single Host that keeps that
+identity, so nobody has to pair again. The browser test starts from that state
+and checks that a message still arrives.
+
