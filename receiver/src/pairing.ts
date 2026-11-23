@@ -103,6 +103,7 @@ class Channel {
   private cursors = new Map<string, number>();
   private epochs = new Map<string, number>();
   private abort = new AbortController();
+  private finished = false;
   private fetch: Fetch;
 
   constructor(
@@ -117,11 +118,21 @@ class Channel {
   }
 
   get closed(): boolean {
-    return this.abort.signal.aborted;
+    return this.finished || this.abort.signal.aborted;
   }
 
-  /** Stops everything in flight. Nothing is sent after this. */
+  /**
+   * The pairing is over. Nothing more is sent or read, but a poll already
+   * waiting at a bridge is left to run out by itself rather than cut. Cutting
+   * it buys nothing, and in Node it leaves the connection to a bridge on
+   * Cloudflare unable to carry the next request.
+   */
   close(): void {
+    this.finished = true;
+  }
+
+  /** The person gave up. Everything in flight is cut at once. */
+  cancel(): void {
     this.abort.abort();
   }
 
@@ -138,7 +149,7 @@ class Channel {
       if (!res.ok) throw new Error();
     };
     await Promise.any(this.bridges.map(post)).catch(() => {
-      throw new PairingError(this.closed ? "cancelled" : "unreachable");
+      throw new PairingError(this.abort.signal.aborted ? "cancelled" : "unreachable");
     });
   }
 
@@ -262,8 +273,8 @@ export async function pairAsReceiver(opts: {
   if (!CODE_SHAPE.test(opts.code)) throw new PairingError("bad_code");
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const channel = new Channel(opts.bridges, await slotIdFrom(opts.code), "receiver", opts.fetch ?? fetch);
-  opts.signal?.addEventListener("abort", () => channel.close());
-  if (opts.signal?.aborted) channel.close();
+  opts.signal?.addEventListener("abort", () => channel.cancel());
+  if (opts.signal?.aborted) channel.cancel();
   try {
     // The commitment must be in hand before this side says anything.
     const commit = await channel.waitFor((m) => (m.t === "commit" ? m : null), timeout);
