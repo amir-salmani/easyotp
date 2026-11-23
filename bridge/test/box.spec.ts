@@ -58,6 +58,19 @@ describe("Box", () => {
     expect(box.waiting).toBe(0);
   });
 
+  it("keeps only the newest of a tagged kind, and never lets it push a message out", () => {
+    // A Host reports on itself every few minutes. Two days of that would
+    // otherwise fill the box and drop the SMS it exists for.
+    const box = new Box();
+    box.add(msg("sms"));
+    for (let i = 0; i < 300; i++) box.add({ ...msg(`s${i}`), tag: "status" });
+    expect(box.count).toBe(2);
+    expect(box.snapshot().map((m) => m.id)).toEqual([msg("sms").id, msg("s299").id]);
+    // A different tag is a different kind.
+    box.add({ ...msg("other"), tag: "other" });
+    expect(box.count).toBe(3);
+  });
+
   it("restores from a snapshot", () => {
     const first = new Box();
     first.add(msg("a"));

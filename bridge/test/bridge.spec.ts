@@ -73,6 +73,16 @@ describe("deposit and collect", () => {
     expect(got.messages).toHaveLength(1);
   });
 
+  it("replaces a tagged message with the next one of the same tag", async () => {
+    const { boxKey, url } = await newBox();
+    await deposit(url, { ...sealed(), tag: "status" });
+    const latest = { ...sealed(), tag: "status" };
+    await deposit(url, latest);
+    const got = (await (await collect(url, boxKey)).json()) as { messages: Array<{ id: string }> };
+    expect(got.messages.map((m) => m.id)).toEqual([latest.id]);
+    expect((await deposit(url, { ...sealed(), tag: "Not-A-Tag" })).status).toBe(400);
+  });
+
   it("answers a waiting collect when a message arrives", async () => {
     const { boxKey, url } = await newBox();
     const waiting = collect(url, boxKey);

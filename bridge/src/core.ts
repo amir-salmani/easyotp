@@ -39,6 +39,7 @@ export interface Config {
 }
 
 const MESSAGE_ID = /^[A-Za-z0-9_-]{16,64}$/;
+const TAG = /^[a-z]{1,16}$/;
 const B64URL = /^[A-Za-z0-9_-]+$/;
 /** JSON framing on top of the largest message. */
 const MAX_BODY_BYTES = LIMITS.maxMessageBytes + 1024;
@@ -88,12 +89,13 @@ async function deposit(req: Request, store: BoxStore, boxId: string): Promise<Re
   if (body === "malformed" || typeof body !== "object" || body === null) {
     return reject("deposit", "malformed", 400, boxId);
   }
-  const { v, id, enc, ct } = body as Record<string, unknown>;
+  const { v, id, enc, ct, tag } = body as Record<string, unknown>;
   if (v !== 2) return reject("deposit", "unsupported_version", 400, boxId);
   if (
     typeof id !== "string" || !MESSAGE_ID.test(id) ||
     typeof enc !== "string" || !KEY_SHAPE.test(enc) ||
-    typeof ct !== "string" || !B64URL.test(ct)
+    typeof ct !== "string" || !B64URL.test(ct) ||
+    (tag !== undefined && (typeof tag !== "string" || !TAG.test(tag)))
   ) {
     return reject("deposit", "malformed", 400, boxId);
   }
@@ -101,7 +103,7 @@ async function deposit(req: Request, store: BoxStore, boxId: string): Promise<Re
     return reject("deposit", "too_large", 413, boxId);
   }
 
-  const outcome = await store.deposit(boxId, { id, enc, ct, at: Date.now() });
+  const outcome = await store.deposit(boxId, { id, enc, ct, at: Date.now(), ...(tag ? { tag } : {}) });
   if (outcome === "full") {
     // The bridge is out of room, which is the bridge's fault and not the
     // message's. 507 tells the Host to count it against this bridge.
