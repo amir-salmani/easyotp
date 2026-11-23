@@ -1,2 +1,5 @@
 node_modules/
 dist/
+dist-tools/
+.wrangler/
+e2e-shots/
