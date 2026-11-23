@@ -69,7 +69,7 @@ describe("collecting", () => {
     await hostSends(net, net.urls, identity.boxId, stranger.publicKey, sms("x"));
 
     const pass = await collectFrom(net.urls[0]!, identity, store, net.fetch);
-    expect(pass).toEqual({ fresh: [], unreadable: 1 });
+    expect(pass).toEqual({ fresh: [], unreadable: 1, received: 1, acknowledged: true });
     expect(messages.size).toBe(0);
     expect((await collectFrom(net.urls[0]!, identity, store, net.fetch)).unreadable).toBe(0);
   });
@@ -94,6 +94,50 @@ describe("collecting", () => {
     expect(seen).toEqual([sms("a").id]);
     expect(status.get(net.urls[0]!)).toBe(false);
     expect(status.get(net.urls[1]!)).toBe(true);
+  });
+
+  it("says when a bridge would not take the acknowledgement, and loses nothing", async () => {
+    const net = localBridges(["one"]);
+    const { identity, publicKey } = await newIdentity();
+    const { store, messages } = memoryStore();
+    await hostSends(net, net.urls, identity.boxId, publicKey, sms("a"));
+    const noAck = ((input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).endsWith("/ack") ? Promise.resolve(new Response("{}", { status: 500 })) : net.fetch(input, init)) as typeof fetch;
+
+    const pass = await collectFrom(net.urls[0]!, identity, store, noAck);
+    expect(pass.acknowledged).toBe(false);
+    expect(messages.size).toBe(1);
+    // Handed over again, recognised, not shown twice.
+    expect((await collectFrom(net.urls[0]!, identity, store, net.fetch)).fresh).toEqual([]);
+  });
+
+  it("does not spin against a bridge that keeps refusing the acknowledgement", async () => {
+    const net = localBridges(["one"]);
+    const { identity, publicKey } = await newIdentity();
+    const { store } = memoryStore();
+    await hostSends(net, net.urls, identity.boxId, publicKey, sms("a"));
+    let collects = 0;
+    const noAck = ((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/ack")) return Promise.resolve(new Response("{}", { status: 500 }));
+      collects++;
+      return net.fetch(input, init);
+    }) as typeof fetch;
+
+    const stop = watch({ bridges: net.urls, identity, store, fetch: noAck, onFresh: () => undefined });
+    await new Promise((r) => setTimeout(r, 900));
+    stop();
+    expect(collects).toBeLessThanOrEqual(2);
+  });
+
+  it("refuses to store a message whose time no clock can show", async () => {
+    // It would be stored, then throw every time the list is drawn.
+    const net = localBridges(["one"]);
+    const { identity, publicKey } = await newIdentity();
+    const { store, messages } = memoryStore();
+    await hostSends(net, net.urls, identity.boxId, publicKey, { ...sms("a"), at: 1e18 });
+    const pass = await collectFrom(net.urls[0]!, identity, store, net.fetch);
+    expect(pass.unreadable).toBe(1);
+    expect(messages.size).toBe(0);
   });
 
   it("is refused a box it holds no key for", async () => {

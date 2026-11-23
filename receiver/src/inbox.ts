@@ -27,6 +27,10 @@ export interface PassResult {
   fresh: Message[];
   /** Sealed items that would not open. Counted, never shown. */
   unreadable: number;
+  /** How many the bridge handed over, fresh or not. */
+  received: number;
+  /** Whether the bridge took the acknowledgement. False means it will hand the same ones over again. */
+  acknowledged: boolean;
 }
 
 /**
@@ -47,7 +51,7 @@ export async function collectFrom(
   if (!res.ok) throw new Error(`collect ${res.status}`);
   const { messages } = (await res.json()) as { messages: Array<{ id: string; enc: string; ct: string }> };
 
-  const result: PassResult = { fresh: [], unreadable: 0 };
+  const result: PassResult = { fresh: [], unreadable: 0, received: messages.length, acknowledged: true };
   for (const sealed of messages) {
     let message: Message;
     try {
@@ -66,18 +70,20 @@ export async function collectFrom(
   }
 
   if (messages.length) {
-    // After the stores above, never before. A failed acknowledgement is not an
-    // error: the bridge hands the same messages over again and they are
-    // recognised by id.
-    await fetchImpl(`${url}/ack`, {
+    // After the stores above, never before. A failed acknowledgement loses
+    // nothing: the bridge hands the same messages over again and they are
+    // recognised by id. The caller is told, so it can slow down.
+    result.acknowledged = await fetchImpl(`${url}/ack`, {
       method: "POST",
       headers,
       body: JSON.stringify({ ids: messages.map((m) => m.id) }),
       signal,
-    }).catch(() => undefined);
+    }).then((r) => r.ok, () => false);
   }
   return result;
 }
+
+const MIN_PASS_MS = 1000;
 
 /**
  * Keeps collecting from every bridge until stopped. Each bridge has its own
@@ -93,20 +99,33 @@ export function watch(opts: {
   fetch?: Fetch;
 }): () => void {
   const abort = new AbortController();
+  const fetchImpl = opts.fetch ?? fetch;
+  const pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+  // 2 s, 4 s, 8 s … capped at a minute.
+  const backoff = (failures: number) => pause(Math.min(60_000, 1000 * 2 ** Math.min(failures, 6)));
   const loop = async (bridge: string) => {
     let failures = 0;
     while (!abort.signal.aborted) {
+      const asked = Date.now();
       try {
-        const { fresh } = await collectFrom(bridge, opts.identity, opts.store, opts.fetch ?? fetch, abort.signal);
-        failures = 0;
+        const pass = await collectFrom(bridge, opts.identity, opts.store, fetchImpl, abort.signal);
         opts.onBridge?.(bridge, true);
-        if (fresh.length) opts.onFresh(fresh);
+        if (pass.fresh.length) opts.onFresh(pass.fresh);
+        if (!pass.acknowledged) {
+          // The bridge will hand the same messages straight back. Without a
+          // pause this would spin, against a bridge that is already failing.
+          await backoff(++failures);
+          continue;
+        }
+        failures = 0;
+        // An empty answer normally takes the bridge's whole hold. One that
+        // comes back at once must not be asked for again at once.
+        const took = Date.now() - asked;
+        if (!pass.received && took < MIN_PASS_MS) await pause(MIN_PASS_MS - took);
       } catch {
         if (abort.signal.aborted) return;
-        failures++;
         opts.onBridge?.(bridge, false);
-        // 2 s, 4 s, 8 s … capped at a minute.
-        await new Promise((r) => setTimeout(r, Math.min(60_000, 1000 * 2 ** Math.min(failures, 6))));
+        await backoff(++failures);
       }
     }
   };
