@@ -140,6 +140,16 @@ describe("collecting", () => {
     expect(messages.size).toBe(0);
   });
 
+  it("gives up on a bridge that takes the request and never answers", async () => {
+    const net = localBridges(["one"]);
+    net.bridges[0]!.hung = true;
+    const { identity } = await newIdentity();
+    const { store } = memoryStore();
+    const started = Date.now();
+    await expect(collectFrom(net.urls[0]!, identity, store, net.fetch, undefined, 200)).rejects.toThrow();
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
   it("is refused a box it holds no key for", async () => {
     const net = localBridges(["one"]);
     const { identity } = await newIdentity();

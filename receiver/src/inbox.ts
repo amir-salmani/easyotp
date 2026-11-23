@@ -46,10 +46,15 @@ export async function collectFrom(
   store: InboxStore,
   fetchImpl: Fetch = fetch,
   signal?: AbortSignal,
+  timeoutMs = COLLECT_TIMEOUT_MS,
 ): Promise<PassResult> {
   const url = `${bridge}/v2/box/${identity.boxId}`;
   const headers = { authorization: `Bearer ${identity.boxKey}` };
-  const res = await fetchImpl(url, { headers, signal });
+  // A bridge that takes the request and never answers must not hold this
+  // Receiver for ever: seen live, where one bridge stopped answering for a box
+  // and the app went on waiting while looking connected.
+  const limit = () => (signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs));
+  const res = await fetchImpl(url, { headers, signal: limit() });
   if (!res.ok) throw new Error(`collect ${res.status}`);
   const { messages } = (await res.json()) as { messages: Array<{ id: string; enc: string; ct: string }> };
 
@@ -86,13 +91,15 @@ export async function collectFrom(
       method: "POST",
       headers,
       body: JSON.stringify({ ids: messages.map((m) => m.id) }),
-      signal,
+      signal: limit(),
     }).then((r) => r.ok, () => false);
   }
   return result;
 }
 
 const MIN_PASS_MS = 1000;
+/** Longer than any bridge's hold (55 s), so only a bridge that has stopped answering reaches it. */
+const COLLECT_TIMEOUT_MS = 75_000;
 
 /**
  * Keeps collecting from every bridge until stopped. Each bridge has its own
