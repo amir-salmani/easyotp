@@ -98,3 +98,15 @@ test("refuses an oversized request before reading it all", async () => {
     await stop(child);
   }
 });
+
+test("carries pairing messages between two sides", async () => {
+  const child = await start();
+  try {
+    const url = `${BASE}/v2/pair/${b64url(randomBytes(32))}`;
+    const waiting = fetch(`${url}?after=0`).then((r) => r.json());
+    assert.equal((await (await post(url, { v: 2, from: "receiver", data: "b2ZmZXI" })).json()).seq, 1);
+    assert.deepEqual((await waiting).messages, [{ seq: 1, from: "receiver", data: "b2ZmZXI" }]);
+  } finally {
+    await stop(child);
+  }
+});

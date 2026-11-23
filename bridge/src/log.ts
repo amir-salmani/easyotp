@@ -10,7 +10,7 @@
 export type Outcome = "ok" | "rejected" | "timeout" | "full";
 
 export interface LogFields {
-  route: "deposit" | "collect" | "ack" | "store";
+  route: "deposit" | "collect" | "ack" | "pair" | "store";
   outcome: Outcome;
   /** First characters of a box id. Never a box key. */
   box?: string;
