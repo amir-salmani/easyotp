@@ -16,7 +16,7 @@ the Host sends through all of them and the Receiver collects from all of them.
 
 | # | Name | Runs as | In front of it | State |
 |---|---|---|---|---|
-| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | A stand-in answers over HTTPS; the bridge image is not deployed |
+| 1 | `easyotp.arsalan.finlawgpt.ir` | Node container, `bridge/src/node.ts` | ArvanCloud CDN | Live since 2026-11-23 |
 | 2 | `easyotp.cfworker.rhinocloud.ir` | Cloudflare Worker, `bridge/src/worker.ts` | Cloudflare | Live since 2026-11-23 |
 
 Both names are settled. Each is two levels below its zone, which a CDN's
@@ -45,14 +45,17 @@ Logs go to stdout, one line per event, and never carry a message or a key.
 `node.ts` keeps its own total under `MAX_TOTAL_BYTES` (128 MB by default) and
 answers `507` to deposits past it, so the 256 MB limit is never approached.
 
-**Deploying.** CI pushes `ghcr.io/amir-salmani/easyotp-bridge`. The tag `live`
+**Deploying.** Moving the tag `live` is the whole deploy. CI pushes `ghcr.io/amir-salmani/easyotp-bridge`. The tag `live`
 moves only on a push to `main`. The host asks the registry every 15 minutes and
 restarts the container when `live` points at a new image; a start counts only
 once `/health` answers. Nobody logs in to deploy, and this repository's sessions
-never touch that host.
+never touch that host. Rolling back to the previous image when a new one never
+becomes healthy is designed there and has not been seen working. A change to the
+contract is asked for as an issue on the host's own repository, never built into
+the image.
 
 **Measured in the path** (2026-11-23, through ArvanCloud's edge over HTTPS, to
-the stand-in):
+the stand-in that held the place before the image):
 
 | Check | Result |
 |---|---|

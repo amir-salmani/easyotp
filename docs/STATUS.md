@@ -44,8 +44,7 @@ screen.** That is still the most important fact on this page.
 
 | Thing | State |
 |---|---|
-| Bridge 1's place | A stand-in answers through ArvanCloud over HTTPS with a valid certificate |
-| Bridge 1's image | Public, and `live` exists since `main` was built. The host still runs the stand-in |
+| Bridge 1 | Live, running the `live` image (14 MB of its 256 MB). A deposit, a refused collect without the key, a collect, an acknowledge and a 55 s empty hold were run against it through ArvanCloud |
 | Bridge 2 | Live. A deposit, a refused collect without the key, a collect, an acknowledge and a 25 s empty hold were run against it |
 | Download links | `dl.amirsalmani.com/s/…` is live in the `amirsalmani-com` repository and returns 404 until the first release |
 | A release | None. No tag has been cut |
@@ -57,7 +56,7 @@ screen.** That is still the most important fact on this page.
 3. ~~Bridge 2 deployed.~~ Done. Receiver web app with pairing; a real SMS arrives.
 4. Signed bundle and config, proven by changing a screen without a new APK.
 5. Wizard, health checks, heartbeat.
-6. Bridge 1's image goes `live`.
+6. ~~Bridge 1's image goes `live`.~~ Done.
 7. Receiver APK.
 
 ## 5. Open debts
