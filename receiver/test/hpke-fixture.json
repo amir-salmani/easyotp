@@ -1,8 +1,8 @@
 {
-  "note": "Sealed by hpke-js as a stand-in. CI replaces it with one sealed by the Host.",
+  "note": "Sealed by ReceiverSealerTest in the Host's unit tests.",
+  "ct": "Q0q-5pq_NyNmdtdD1700I2Nf9m0BLrQqZwK76MJ_1a_7BBAGDRpKhOqHqVSK7eGVKE9EqcMSgByFax1dbCELjyB7LE6CPXnACT_hgLf_5Y9Qm42EHO75Vqb7uAwu3Lzt9bm2oEyDGVJg4Gbri93IshODxwoZxZunz1ZdbjRZjUD2Zd4dg-mtsIicpZlODeIh3dwfoZuCNskjnACgE8T3S7YJaAMZMDZp4JiqWL0YylI4VZNx",
+  "plaintext": "{\"code\":\"4821\",\"at\":1700000000000,\"v\":2,\"sim\":\"همراه اول\",\"from\":\"+98200\",\"id\":\"Ri5qnUHphAknkmMKdTNHK1_4XBwKXoI0\",\"body\":\"رمز یکبار مصرف: 4821\"}",
   "publicKey": "cPBUlcXX9VZOze4ZSgxhSk3rUs3a1w92okcGQO2Xk04",
-  "id": "interop-fixture-0000000000000001",
-  "plaintext": "{\"v\":2,\"id\":\"interop-fixture-0000000000000001\",\"sim\":\"MCI\",\"from\":\"+98200\",\"body\":\"رمز یکبار مصرف: 4821\",\"code\":\"4821\",\"at\":1700000000000}",
-  "enc": "EFZP4Q1YeWVQGI5J1ubLhYApWE2E1Ib2sPloc29r3jw",
-  "ct": "JBupoweu6ypw8FRc5QbikrFmBTZCtWGlMc1itL8YEEmHT46G_BP2yXZbWsoNSQe7xBNAOyYZs-hXf3wByXikvAxueOi65VPz9kpd8EzpZkvAFLtfJISCsrRpxsex3g3Z6v5VpAYe6l7_kvhngmO9CV6-vZ_eVxTCwUCHcxb5SrwK9dS1hsChhSTiC3T8i7-qigrlHqxXYYppUiMyynU-gKfQPRBTDQ"
+  "id": "Ri5qnUHphAknkmMKdTNHK1_4XBwKXoI0",
+  "enc": "TfvBk5DkJ1zMqcypsayu29SZ7C-sjIXmvMucp6xTJQo"
 }
