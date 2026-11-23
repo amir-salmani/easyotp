@@ -69,6 +69,8 @@ screen.** That is still the most important fact on this page.
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message | With pairing |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
 | No rate limit on deposit | A known box id can be flooded until its oldest messages fall out | With bridge 2's deploy |
+| SIM identity on Android 10+ | An ordinary app gets an empty ICCID there, so the route is keyed by subscription id. That it stays with its SIM across reboots and re-insertion is assumed, not seen | Step 3, on a dual-SIM phone |
+| No automated test of the outbox, the drain loop or the settings store | They need Android's SQLite and Keystore. Retry timing, dead rows and the unreadable-settings guard are checked by reading only | With the first on-device test run |
 | Unverified on hardware | Sideloaded install with `RECEIVE_SMS` on Android 15+, service survival on Xiaomi and Samsung, silent self-update on Android 12+ | Step 3 |
 | `targetSdk` is 36, `compileSdk` 37 | Moving the target changes how Android treats the service | After a phone on 37 has been tested |
 | The test plugin pins the Workers compatibility date | `wrangler.jsonc` cannot name a date newer than the plugin's bundled runtime | When the plugin updates |
