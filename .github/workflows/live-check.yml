@@ -1,0 +1,35 @@
+name: live-check
+
+# Pairs, delivers a message and rings through the deployed bridges, from a
+# machine that is not anyone's laptop. Run it after a deploy, or when a check
+# from a workstation fails and the question is whose network is at fault.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: How many times to run the whole check
+        default: "5"
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: receiver/package-lock.json
+      - working-directory: receiver
+        run: |
+          npm ci
+          failed=0
+          for i in $(seq 1 "${{ inputs.runs }}"); do
+            echo "--- run $i"
+            npm run -s live-check || failed=$((failed + 1))
+          done
+          echo "$failed of ${{ inputs.runs }} runs had a failure"
+          test "$failed" = 0
