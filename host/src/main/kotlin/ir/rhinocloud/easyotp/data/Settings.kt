@@ -189,10 +189,8 @@ class Settings(
         /**
          * The bridges as they stood when this APK was built (DECISIONS D17).
          *
-         * Not final: neither name has been reached over HTTPS yet, and either
-         * may move one level up if its certificate does not cover it. Settle
-         * them before the first release, because an installed phone starts
-         * from this list.
+         * Both names answer over HTTPS with a certificate that covers them.
+         * Change one only with care: an installed phone starts from this list.
          */
         val SEED_BRIDGES = listOf(
             Bridge("arsalan", "https://easyotp.arsalan.finlawgpt.ir"),
