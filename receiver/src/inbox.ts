@@ -6,7 +6,7 @@
  * bridge only after it is safely stored on this device: a Receiver that dies
  * between collecting and storing is given the message again.
  */
-import { open, OpenError, type Message } from "./open";
+import { openAny, OpenError, type Message, type Status } from "./open";
 import type { Fetch } from "./pairing";
 
 export interface Identity {
@@ -20,6 +20,8 @@ export interface InboxStore {
   has(id: string): Promise<boolean>;
   /** Stores a message. Must be durable before it resolves. */
   put(message: Message): Promise<void>;
+  /** Takes a Host's report on itself. Only the newest matters; an older one is ignored. */
+  status?(status: Status): Promise<void>;
 }
 
 export interface PassResult {
@@ -55,7 +57,14 @@ export async function collectFrom(
   for (const sealed of messages) {
     let message: Message;
     try {
-      message = await open(identity.privateKey, sealed.id, sealed.enc, sealed.ct);
+      const payload = await openAny(identity.privateKey, sealed.id, sealed.enc, sealed.ct);
+      if ("k" in payload) {
+        // A report is taken, never listed. A command has no business in a
+        // Receiver's box and is dropped.
+        if (payload.k === "status") await store.status?.(payload);
+        continue;
+      }
+      message = payload;
     } catch (e) {
       // Not sealed to this Receiver, changed on the way, or relabelled. It is
       // acknowledged below so it does not come back for ever.

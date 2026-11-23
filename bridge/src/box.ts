@@ -18,6 +18,12 @@ export interface Sealed {
   ct: string;
   /** When this bridge received it, in milliseconds. Not part of the seal. */
   at: number;
+  /**
+   * Set on a message that replaces the last one of its kind, such as a Host's
+   * report on itself. Only the newest message with a given tag is kept, so a
+   * report every few minutes cannot crowd real messages out of the box.
+   */
+  tag?: string;
 }
 
 export const LIMITS = {
@@ -30,7 +36,7 @@ export const LIMITS = {
   retentionMs: 48 * 60 * 60 * 1000,
 } as const;
 
-export const sizeOf = (m: Sealed) => m.id.length + m.enc.length + m.ct.length;
+export const sizeOf = (m: Sealed) => m.id.length + m.enc.length + m.ct.length + (m.tag?.length ?? 0);
 
 type Waiter = (messages: Sealed[]) => void;
 
@@ -75,6 +81,7 @@ export class Box {
   add(m: Sealed): "stored" | "duplicate" {
     this.expire(m.at);
     if (this.messages.some((x) => x.id === m.id)) return "duplicate";
+    if (m.tag) this.messages = this.messages.filter((x) => x.tag !== m.tag);
     this.messages.push(m);
     while (this.messages.length > LIMITS.maxMessages || this.bytes > LIMITS.maxBoxBytes) {
       this.messages.shift();

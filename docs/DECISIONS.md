@@ -455,7 +455,8 @@ below `rhinocloud.ir`. Checked at deploy; the fallback is flatter names.
 
 ## D18 — Pairing by a spoken code and a matching picture (2026-11-23)
 
-**Chosen:** «کد آشنایی». The Host shows eight digits, valid ten minutes. The
+**Chosen:** «کد اتصال» (first called «کد آشنایی», renamed on 2026-11-23 because
+it read like a referral code). The Host shows eight digits, valid ten minutes. The
 person holding it reads them over a phone call; the other person types them into
 the Receiver. Both screens then show the same picture and word, and both people
 confirm they match.
@@ -647,4 +648,73 @@ people and ends the pairing.
 
 **Built:** the Receiver's side, and the Host's side in TypeScript for the tests
 and the stand-in Host. **Not built:** the Host app's side in Kotlin.
+
+---
+
+## D25 — A Receiver makes new keys and a new box for every Host (2026-11-23)
+
+**Chosen:** each pairing gets its own key pair and its own box. A Receiver
+listening to three Hosts holds three private keys and collects from three boxes.
+
+**Rejected:** one identity per Receiver, offered to every Host, which is how the
+first version worked.
+
+**Why:** with one box, nothing says which Host a message came from, so a
+Receiver could not name the sender or show one Host's messages alone. With one
+key, removing a Host removed nothing: that Host could go on sealing messages
+this device would open. Separate keys make removal final. The Host's keys are
+deleted with it, and whatever is sent to its box afterwards is never collected
+and could not be opened if it were.
+
+It also keeps Hosts from learning anything about each other. Two Hosts paired
+to the same Receiver hold different keys and different box ids, and neither can
+tell that the other exists.
+
+**Cost:** one held request per Host per bridge while the app is open.
+
+**Upgrading:** a device paired under the first version had one identity and a
+list of Host names. On first launch they become a single Host that keeps that
+identity, so nobody has to pair again. The browser test starts from that state
+and checks that a message still arrives.
+
+---
+
+## D26 — A Host reports on itself, and can be asked to ring (2026-11-23)
+
+**Chosen:** two things added to what travels between a paired Host and Receiver.
+
+| What | Direction | Carries |
+|---|---|---|
+| A status report | Host to Receiver | when it was made, how often to expect one, battery, charging, network, SMS not yet delivered |
+| A command | Receiver to Host | `buzz` (ring and vibrate) or `ping` (report now). The Host answers with a report naming the command |
+
+Both are sealed like an SMS. A report is deposited with the tag `status`, and a
+bridge keeps only the newest message with a given tag.
+
+**Rejected:** a heartbeat the bridge understands; a bridge-side "last seen";
+commands in the clear.
+
+**Why:** the phone sits unattended in another country, and the first anyone
+learns of a dead battery is the day a code does not arrive. A report every few
+minutes turns that into something seen in advance, and ringing the phone gets
+someone nearby to plug it in. Keeping both sealed means a bridge still learns
+nothing but timing; the tag tells it only that a message replaces the previous
+one, which the timing already gave away.
+
+Without the tag, two days of reports would fill a box past its hundred messages
+and push out the SMS it exists for.
+
+**The command channel.** At pairing the Host makes a key and a box for that one
+Receiver's commands and sends them sealed to the key the Receiver just offered
+(in the reveal, D24). A bridge sees the box id later, in a deposit URL, and
+never the key, so it cannot make a phone ring.
+
+**"Alive"** means the newest report is younger than two and a half of the
+Host's own intervals. The interval travels in the report, so the Receiver does
+not need to know it in advance.
+
+**Built:** the Receiver's side, the bridge's tag, and a Host simulator in
+TypeScript used by the tests and the stand-in. **Not built:** the Host app's
+side in Kotlin, where a command also has to reach a phone that Android is
+trying to put to sleep.
 

@@ -1,16 +1,16 @@
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
-import { CODE_SHAPE, pairAsReceiver, PairingError, type PairingResult } from "../pairing";
+import { CODE_SHAPE, pairAsReceiver, PairingError, type HostChannel, type PairingResult } from "../pairing";
 import { COLOURS, THINGS } from "../pictures";
-import type { StoredIdentity } from "./db";
+import { newHostKeys, type HostKeys } from "./db";
 import { faDigits, latinDigits, type Lang, type Strings } from "./i18n";
 import { Alert, Button, Card, Screen } from "./ui";
 
 type Step =
   | { at: "enter"; error?: string }
   | { at: "waiting" }
-  | { at: "picture"; result: PairingResult }
+  | { at: "picture"; result: PairingResult & { host: HostChannel | null }; keys: HostKeys }
   | { at: "done"; host: string };
 
 /** The colour and the thing, large, with both words: this is read aloud on a call. */
@@ -42,10 +42,10 @@ export function PictureCard({ result, lang }: { result: PairingResult; lang: Lan
 export function Pair(props: {
   t: Strings;
   lang: Lang;
-  identity: StoredIdentity;
   header: React.ReactNode;
   canCancel: boolean;
-  onPaired: (hostLabel: string) => Promise<void>;
+  /** Called when the person confirms the picture, with the keys made for this Host. */
+  onPaired: (keys: HostKeys, hostLabel: string, remote: HostChannel | null) => Promise<void>;
   onClose: () => void;
 }) {
   const { t, lang } = props;
@@ -72,13 +72,17 @@ export function Pair(props: {
     const signal = abort.current.signal;
     setStep({ at: "waiting" });
     try {
+      // New keys and a new box for every Host. They are kept only if the
+      // picture is confirmed; otherwise they are simply forgotten.
+      const keys = await newHostKeys();
       const result = await pairAsReceiver({
         bridges: SEED_BRIDGES,
         code,
-        offer: { publicKey: props.identity.publicKey, boxId: props.identity.boxId, label: label.trim() || t.pairLabelDefault },
+        offer: { publicKey: keys.publicKey, boxId: keys.boxId, label: label.trim() || t.pairLabelDefault },
+        privateKey: keys.privateKey,
         signal,
       });
-      if (!signal.aborted) setStep({ at: "picture", result });
+      if (!signal.aborted) setStep({ at: "picture", result, keys });
     } catch (e) {
       if (signal.aborted) return;
       const reason = e instanceof PairingError ? e.reason : "unreachable";
@@ -124,7 +128,7 @@ export function Pair(props: {
           onClick={async () => {
             setSaving(true);
             try {
-              await props.onPaired(step.result.peerLabel);
+              await props.onPaired(step.keys, step.result.peerLabel, step.result.host);
               setStep({ at: "done", host: step.result.peerLabel });
             } catch {
               startOver(t.errStorage);

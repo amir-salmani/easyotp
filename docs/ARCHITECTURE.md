@@ -98,7 +98,9 @@ The Receiver makes `boxKey` and gives the Host only `boxId`. Knowing the id lets
 a Host deposit. Collecting and acknowledging need the key, which the bridge
 checks by hashing it forward. Nothing is stored to make that decision.
 
-**What a bridge keeps.** A message stays until it is acknowledged or 48 hours
+**What a bridge keeps.** A deposit may carry a tag; only the newest message
+with a given tag is kept, which is how a Host's report on itself replaces the
+last one (D26). A message stays until it is acknowledged or 48 hours
 old. Collecting does not remove it, so a Receiver that dies between reading and
 showing a message gets it again. A box holds at most 100 messages and 512 KB;
 past that the oldest goes. A deposit is at most 16 KB.
@@ -119,10 +121,20 @@ there (D15).
 | `src/open.ts` | Opens a sealed message, and refuses one whose id in the seal differs from the id it arrived under |
 | `src/pairing.ts` | The Receiver's side of pairing (D24) |
 | `src/inbox.ts` | Collects from every bridge, shows a message once, acknowledges only after it is stored |
+| `src/commands.ts` | Seals a command to a Host and leaves it at every bridge |
 | `src/app/` | The screens, and `db.ts`: keys, pairings and messages in IndexedDB on the device |
 
-The private key and the box key are made on first use and exist only in that
-device's storage. There is no account and no export.
+Every paired Host gets its own key pair and its own box (D25), made when the
+pairing starts and kept only if the picture is confirmed. They exist only in
+that device's storage. There is no account and no export. Removing a Host
+deletes its keys and its messages together.
+
+Above the messages is a monitor for each Host: whether it is alive, when it
+was last heard, its battery and network, and buttons to make it ring or report
+now (D26).
+
+Behind a gear on the message list is a side panel: the Hosts, with rename and
+remove; language, notifications and deleting all messages; and the help.
 
 A notification appears only while the app is open or in the background. Waking
 a closed app needs web push, which is not built. The Android shell is not built.

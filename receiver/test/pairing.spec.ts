@@ -175,7 +175,9 @@ describe("pairing", () => {
   });
 });
 
-describe("a bridge that interferes with pairing (THREAT-MODEL A6)", () => {
+// Each attack is 24 full pairings with real cryptography. On a slow machine
+// that is more than a test's usual five seconds.
+describe("a bridge that interferes with pairing (THREAT-MODEL A6)", { timeout: 60_000 }, () => {
   // One try in 512 matches by luck, so each attack runs 24 pairings and is
   // allowed at most two matches.
 
