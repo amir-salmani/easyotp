@@ -1,5 +1,5 @@
-import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, BellRing, Check, ChevronDown, Languages, Send, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, BellRing, Check, ChevronDown, Languages, Send, Settings, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { faDigits, type Lang } from "../app/i18n";
 import { Alert, Button, Card, PictureCard, Screen } from "../app/ui";
 import { pictureFrom } from "../pictures";
@@ -28,6 +28,8 @@ export function HostApp({ native }: { native: Native }) {
   const [state, setState] = useState<HostState>(() => read(native));
   const [open, setOpen] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** The gear's panel: everything that is set once and then left alone. */
+  const [panel, setPanel] = useState(false);
   const t = HOST_STRINGS[lang];
 
   useEffect(() => {
@@ -47,19 +49,27 @@ export function HostApp({ native }: { native: Native }) {
     const back = () => {
       if (state.ring) native.stopRing();
       else if (state.pair) native.pairCancel();
-      else if (open) setOpen(null);
+      else if (panel) setPanel(false);
       else native.exit();
     };
     window.addEventListener(BACK, back);
     return () => window.removeEventListener(BACK, back);
-  }, [native, state.ring, state.pair, open]);
+  }, [native, state.ring, state.pair, panel]);
 
+  // Once the phone is set up, the corner holds the gear. Before that there is
+  // nothing to manage, and the one thing a person may need is the other language.
+  const ready = state.consent && state.perms.sms && state.perms.phone && !state.pair;
   const header = (
     <header className="flex items-center justify-between">
       <span className="flex items-baseline gap-2 text-lg font-bold">
         <span dir="ltr">EasyOTP</span>
         <span className="text-base font-medium text-muted-foreground">{t.role}</span>
       </span>
+      {ready ? (
+        <button onClick={() => setPanel(true)} aria-label={t.menu} className="inline-flex size-12 items-center justify-center rounded-lg">
+          <Settings aria-hidden size={26} strokeWidth={2} />
+        </button>
+      ) : (
       <button
         onClick={() => setLang(lang === "fa" ? "en" : "fa")}
         className="inline-flex min-h-12 items-center gap-2 rounded-lg px-3 font-semibold"
@@ -68,6 +78,7 @@ export function HostApp({ native }: { native: Native }) {
         <Languages aria-hidden size={20} strokeWidth={2} />
         {t.language}
       </button>
+      )}
     </header>
   );
 
@@ -100,8 +111,11 @@ export function HostApp({ native }: { native: Native }) {
         native={native}
         onAnswered={(same, id, peer) => {
           setNotice(same ? (id ? t.connected(peer) : t.errStore) : t.errDifferent);
-          // With two SIMs, the next question is which of them this person reads.
-          if (id) setOpen(id);
+          // What this person may read and do is set in the panel, so it opens there.
+          if (id) {
+            setOpen(id);
+            setPanel(true);
+          }
         }}
       />
       </>
@@ -112,17 +126,14 @@ export function HostApp({ native }: { native: Native }) {
     <>
     {ringing}
     <Setup t={t} lang={lang} header={header} state={state} native={native}>
-      <Home
-        t={t}
-        lang={lang}
-        header={header}
-        state={state}
-        native={native}
-        open={open}
-        setOpen={setOpen}
-        notice={notice}
-        clearNotice={() => setNotice(null)}
-      />
+      <Home t={t} lang={lang} header={header} state={state} native={native} notice={notice} clearNotice={() => setNotice(null)} onManage={(id) => {
+        setOpen(id);
+        setPanel(true);
+      }} />
+      {/* A ring is said over everything, and a dialog would sit on top of it. */}
+      {panel && !state.ring && (
+        <HostPanel t={t} lang={lang} state={state} native={native} open={open} setOpen={setOpen} onLang={setLang} onClose={() => setPanel(false)} />
+      )}
     </Setup>
     </>
   );
@@ -220,42 +231,21 @@ function Setup(props: { t: HostStrings; lang: Lang; header: React.ReactNode; sta
   );
 }
 
+/** What the phone is doing, who is connected, and the one thing done often: connecting someone. */
 function Home(props: {
   t: HostStrings;
   lang: Lang;
   header: React.ReactNode;
   state: HostState;
   native: Native;
-  open: string | null;
-  setOpen: (id: string | null) => void;
   notice: string | null;
   clearNotice: () => void;
+  /** Opens the panel at one Receiver. */
+  onManage: (id: string) => void;
 }) {
-  const { t, lang, state, native, open, setOpen } = props;
-  const [removing, setRemoving] = useState<string | null>(null);
-  const [name, setName] = useState(state.label);
-  const [testing, setTesting] = useState<number | null>(null);
+  const { t, lang, state, native } = props;
   const count = state.receivers.length;
-  const date = useCallback(
-    (at: number) => new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "medium" }).format(at),
-    [lang],
-  );
-
-  // A test is finished when the phone reports one newer than the press.
-  const tested = testing !== null && state.test !== null && state.test.at >= testing;
-  useEffect(() => {
-    if (tested) setTesting(null);
-  }, [tested]);
-  const showTest = state.test !== null && testing === null;
-
-  const toggleSim = (id: string, current: string[] | null, key: string) => {
-    const all = state.sims.map((s) => s.key);
-    const now = current ?? all;
-    const next = now.includes(key) ? now.filter((k) => k !== key) : [...now, key];
-    // Someone connected reads at least one SIM; to stop everything, disconnect them.
-    if (next.length === 0) return;
-    native.setReceiverSims(id, all.every((k) => next.includes(k)) ? "null" : JSON.stringify(next));
-  };
+  const date = (at: number) => new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "medium" }).format(at);
 
   return (
     <Screen>
@@ -290,6 +280,116 @@ function Home(props: {
         <section className="flex flex-col gap-3">
           <h2 className="text-lg font-semibold">{t.receivers}</h2>
           {state.receivers.map((r) => (
+            <button key={r.id} onClick={() => props.onManage(r.id)} className="flex min-h-16 w-full items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 text-start">
+              <span>
+                <span dir="auto" className="block text-lg font-semibold">
+                  {r.label || t.receivers}
+                </span>
+                <span className="block text-muted-foreground">{t.since(date(r.pairedAt))}</span>
+              </span>
+              <Settings aria-hidden size={22} className="shrink-0 text-muted-foreground" />
+            </button>
+          ))}
+        </section>
+      )}
+
+      <Button variant={count ? "secondary" : "primary"} onClick={() => native.pairStart()}>
+        {count ? t.connectAnother : t.connect}
+      </Button>
+    </Screen>
+  );
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      <h3 className="text-lg font-bold">{title}</h3>
+      {children}
+    </section>
+  );
+}
+
+/** A switch with its sentence, and what to do while Android has not agreed to it. */
+function Switch(props: { t: HostStrings; native: Native; label: string; hint: string; on: boolean; granted: boolean; what: Permission; onChange: (on: boolean) => void }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 font-medium">
+        <input
+          type="checkbox"
+          className="size-6 shrink-0"
+          checked={props.on}
+          onChange={(e) => {
+            props.onChange(e.target.checked);
+            if (e.target.checked && !props.granted) props.native.ask(props.what);
+          }}
+        />
+        {props.label}
+      </label>
+      <p className="text-muted-foreground">{props.hint}</p>
+      {props.on && !props.granted && <Granting t={props.t} native={props.native} what={props.what} />}
+    </div>
+  );
+}
+
+/**
+ * Behind the gear: who is connected and what each may do, what the phone
+ * shares, its name and language, a test, and the help. The home screen stays
+ * as it is on a phone nobody touches: a status and a list.
+ */
+function HostPanel(props: {
+  t: HostStrings;
+  lang: Lang;
+  state: HostState;
+  native: Native;
+  open: string | null;
+  setOpen: (id: string | null) => void;
+  onLang: (lang: Lang) => void;
+  onClose: () => void;
+}) {
+  const { t, lang, state, native, open, setOpen } = props;
+  const ref = useRef<HTMLDialogElement>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [name, setName] = useState(state.label);
+  const [testing, setTesting] = useState<number | null>(null);
+  const date = (at: number) => new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "medium" }).format(at);
+
+  useEffect(() => {
+    ref.current?.showModal();
+  }, []);
+
+  // A test is finished when the phone reports one newer than the press.
+  const tested = testing !== null && state.test !== null && state.test.at >= testing;
+  useEffect(() => {
+    if (tested) setTesting(null);
+  }, [tested]);
+
+  const toggleSim = (id: string, current: string[] | null, key: string) => {
+    const all = state.sims.map((s) => s.key);
+    const now = current ?? all;
+    const next = now.includes(key) ? now.filter((k) => k !== key) : [...now, key];
+    // Someone connected reads at least one SIM; to stop everything, disconnect them.
+    if (next.length === 0) return;
+    native.setReceiverSims(id, all.every((k) => next.includes(k)) ? "null" : JSON.stringify(next));
+  };
+
+  return (
+    <dialog
+      ref={ref}
+      onClose={props.onClose}
+      // Fills the height and sits against the starting edge: the right in Persian, the left in English.
+      className="m-0 me-auto h-dvh max-h-none w-[min(92vw,26rem)] max-w-none overflow-y-auto border-e border-border bg-background p-0 text-foreground backdrop:bg-foreground/40"
+    >
+      <div className="flex min-h-full flex-col gap-8 px-4 py-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold">{t.menu}</h2>
+          <button onClick={() => ref.current?.close()} aria-label={t.close} className="inline-flex size-12 items-center justify-center rounded-lg">
+            <X aria-hidden size={24} strokeWidth={2} />
+          </button>
+        </div>
+
+        <Section title={t.receivers}>
+          {state.receivers.length === 0 && <p className="text-muted-foreground">{t.noneBody}</p>}
+          {state.receivers.map((r) => (
             <Card key={r.id} className="flex flex-col gap-3">
               <button
                 className="flex min-h-12 w-full items-center justify-between gap-3 text-start"
@@ -300,7 +400,9 @@ function Home(props: {
                 }}
               >
                 <span>
-                  <span className="block text-lg font-semibold">{r.label || t.receivers}</span>
+                  <span dir="auto" className="block text-lg font-semibold">
+                    {r.label || t.receivers}
+                  </span>
                   <span className="block text-muted-foreground">{t.since(date(r.pairedAt))}</span>
                 </span>
                 <ChevronDown aria-hidden size={22} className={`shrink-0 transition-transform ${open === r.id ? "rotate-180" : ""}`} />
@@ -312,31 +414,13 @@ function Home(props: {
                       <legend className="mb-2 font-medium">{t.simsTitle}</legend>
                       {state.sims.map((sim) => (
                         <label key={sim.key} className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4">
-                          <input
-                            type="checkbox"
-                            className="size-6 shrink-0"
-                            checked={r.sims === null || r.sims.includes(sim.key)}
-                            onChange={() => toggleSim(r.id, r.sims, sim.key)}
-                          />
+                          <input type="checkbox" className="size-6 shrink-0" checked={r.sims === null || r.sims.includes(sim.key)} onChange={() => toggleSim(r.id, r.sims, sim.key)} />
                           <span dir="auto">{sim.name}</span>
                         </label>
                       ))}
                     </fieldset>
                   )}
-                  <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
-                    <input
-                      type="checkbox"
-                      className="size-6 shrink-0"
-                      checked={r.canSend}
-                      onChange={(e) => {
-                        native.setReceiverCanSend(r.id, e.target.checked);
-                        if (e.target.checked && !state.perms.send) native.ask("send");
-                      }}
-                    />
-                    {t.canSend}
-                  </label>
-                  <p className="text-muted-foreground">{t.canSendHint}</p>
-                  {r.canSend && !state.perms.send && <Granting t={t} native={native} what="send" />}
+                  <Switch t={t} native={native} label={t.canSend} hint={t.canSendHint} on={r.canSend} granted={state.perms.send} what="send" onChange={(on) => native.setReceiverCanSend(r.id, on)} />
                   {removing === r.id ? (
                     <>
                       <p className="font-medium">{t.removeAsk(r.label)}</p>
@@ -356,95 +440,118 @@ function Home(props: {
               )}
             </Card>
           ))}
-        </section>
-      )}
-
-      <Button variant={count ? "secondary" : "primary"} onClick={() => native.pairStart()}>
-        {count ? t.connectAnother : t.connect}
-      </Button>
-
-      {count > 0 && (
-        <section className="flex flex-col gap-3">
           <Button
             variant="secondary"
-            disabled={testing !== null}
             onClick={() => {
-              setTesting(Date.now());
-              native.sendTest();
+              ref.current?.close();
+              native.pairStart();
             }}
           >
-            <Send aria-hidden size={20} />
-            {testing !== null ? t.testing : t.test}
+            {state.receivers.length ? t.connectAnother : t.connect}
           </Button>
-          {showTest && (state.test!.ok ? <p role="status">{t.testOk}</p> : <Alert>{t.testFail}</Alert>)}
-        </section>
-      )}
+        </Section>
 
-      {count > 0 && (
-        <Card className="flex flex-col gap-3">
-          <h2 className="font-semibold">{t.callsTitle}</h2>
-          <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
-            <input
-              type="checkbox"
-              className="size-6 shrink-0"
-              checked={state.calls}
-              onChange={(e) => {
-                native.setCalls(e.target.checked);
-                if (e.target.checked && !state.perms.calls) native.ask("calls");
-              }}
-            />
-            {t.callsOn}
+        <Section title={t.shareTitle}>
+          <Switch t={t} native={native} label={t.callsOn} hint={t.callsHint} on={state.calls} granted={state.perms.calls} what="calls" onChange={(on) => native.setCalls(on)} />
+          <Switch t={t} native={native} label={t.contactsOn} hint={t.contactsHint} on={state.contacts} granted={state.perms.contacts} what="contacts" onChange={(on) => native.setContacts(on)} />
+        </Section>
+
+        <Section title={t.thisPhone}>
+          <label htmlFor="phone-name" className="font-semibold">
+            {t.phoneName}
           </label>
-          <p className="text-muted-foreground">{t.callsHint}</p>
-          {state.calls && !state.perms.calls && <Granting t={t} native={native} what="calls" />}
-        </Card>
-      )}
+          <input id="phone-name" dir="auto" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} className="min-h-14 rounded-lg border border-input bg-background px-4" />
+          <p className="text-muted-foreground">{t.phoneNameHint}</p>
+          {name.trim() !== state.label && name.trim() !== "" && (
+            <Button variant="secondary" onClick={() => native.setLabel(name.trim())}>
+              <Check aria-hidden size={20} />
+              {t.save}
+            </Button>
+          )}
+          <fieldset className="flex flex-col gap-2">
+            <legend className="mb-2 font-semibold">{t.languageLabel}</legend>
+            <div className="grid grid-cols-2 gap-3">
+              {(["fa", "en"] as const).map((code) => (
+                <button
+                  key={code}
+                  lang={code}
+                  aria-pressed={lang === code}
+                  onClick={() => props.onLang(code)}
+                  className={`min-h-12 rounded-lg border font-semibold ${lang === code ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card"}`}
+                >
+                  {code === "fa" ? "فارسی" : "English"}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </Section>
 
-      {count > 0 && (
-        <Card className="flex flex-col gap-3">
-          <h2 className="font-semibold">{t.contactsTitle}</h2>
-          <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
-            <input
-              type="checkbox"
-              className="size-6 shrink-0"
-              checked={state.contacts}
-              onChange={(e) => {
-                native.setContacts(e.target.checked);
-                if (e.target.checked && !state.perms.contacts) native.ask("contacts");
-              }}
-            />
-            {t.contactsOn}
-          </label>
-          <p className="text-muted-foreground">{t.contactsHint}</p>
-          {state.contacts && !state.perms.contacts && <Granting t={t} native={native} what="contacts" />}
-        </Card>
-      )}
-
-      <Card className="flex flex-col gap-3">
-        <label htmlFor="phone-name" className="font-semibold">
-          {t.phoneName}
-        </label>
-        <input
-          id="phone-name"
-          dir="auto"
-          maxLength={40}
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          className="min-h-14 rounded-lg border border-input bg-background px-4"
-        />
-        <p className="text-muted-foreground">{t.phoneNameHint}</p>
-        {name.trim() !== state.label && name.trim() !== "" && (
-          <Button variant="secondary" onClick={() => native.setLabel(name.trim())}>
-            <Check aria-hidden size={20} />
-            {t.save}
+        <Section title={t.permsTitle}>
+          <ul className="flex flex-col gap-2">
+            {(
+              [
+                ["sms", t.smsTitle],
+                ["phone", t.phoneTitle],
+                ["notify", t.notifyTitle],
+                ["battery", t.batteryTitle],
+              ] as const
+            ).map(([key, label]) => (
+              <li key={key} className="flex min-h-12 items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2">
+                <span>{label}</span>
+                {state.perms[key] ? (
+                  <span className="flex items-center gap-1 font-medium text-success">
+                    <Check aria-hidden size={18} />
+                    {t.granted}
+                  </span>
+                ) : (
+                  <button onClick={() => native.ask(key)} className="min-h-10 rounded-lg bg-secondary px-3 font-semibold text-secondary-foreground">
+                    {t.fix}
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+          <Button variant="secondary" onClick={() => native.ask("settings")}>
+            {t.openSettings}
           </Button>
+        </Section>
+
+        {state.receivers.length > 0 && (
+          <Section title={t.testTitle}>
+            <Button
+              variant="secondary"
+              disabled={testing !== null}
+              onClick={() => {
+                setTesting(Date.now());
+                native.sendTest();
+              }}
+            >
+              <Send aria-hidden size={20} />
+              {testing !== null ? t.testing : t.test}
+            </Button>
+            {state.test !== null && testing === null && (state.test.ok ? <p role="status">{t.testOk}</p> : <Alert>{t.testFail}</Alert>)}
+          </Section>
         )}
-      </Card>
 
-      <p className="text-center text-muted-foreground" dir="auto">
-        {t.version(state.version)}
-      </p>
-    </Screen>
+        <Section title={t.helpTitle}>
+          <div className="flex flex-col gap-2">
+            {t.help.map(([question, answer]) => (
+              <details key={question} className="group rounded-lg border border-border bg-card">
+                <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 p-4 font-semibold">
+                  {question}
+                  <ChevronDown aria-hidden size={20} strokeWidth={2} className="shrink-0 transition-transform duration-200 group-open:rotate-180" />
+                </summary>
+                <p className="px-4 pb-4">{answer}</p>
+              </details>
+            ))}
+          </div>
+        </Section>
+
+        <p className="text-center text-muted-foreground" dir="auto">
+          {t.version(state.version)}
+        </p>
+      </div>
+    </dialog>
   );
 }
 

@@ -192,7 +192,9 @@ try {
 
   // Disconnect, and nothing more is sent.
   // The row of someone just connected is already open.
-  if (!(await page.getByRole("button", { name: "قطع اتصال" }).isVisible())) await page.getByRole("button", { name: /emulator-check/ }).click();
+  // Everything about a Receiver is behind the gear, which opened by itself after the pairing.
+  if (!(await page.locator("dialog").isVisible())) await page.getByRole("button", { name: "تنظیمات و راهنما" }).click();
+  if (!(await page.getByRole("button", { name: "قطع اتصال" }).isVisible())) await page.locator("dialog").getByRole("button", { name: /emulator-check/ }).click();
   await page.getByRole("button", { name: "قطع اتصال" }).click();
   await page.getByRole("button", { name: "بله، قطع کن" }).click();
   await until("the Receiver to be removed", async () => (await state(page)).receivers.length === 0);
