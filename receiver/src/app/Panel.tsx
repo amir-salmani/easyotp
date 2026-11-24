@@ -120,7 +120,9 @@ export function Panel(props: {
   lang: Lang;
   hosts: PairedHost[];
   counts: Record<string, number>;
-  /** The answer to "may this app notify" just changed. */
+  /** Whether a closed app will be woken: true, false, or null when that was not tried. */
+  wakes: boolean | null;
+  /** The answer to "may this app notify" just changed, or the person asks to try again. */
   onNotifyChanged: () => void;
   spamAuto: boolean;
   onSpamAuto: (auto: boolean) => void;
@@ -213,6 +215,16 @@ export function Panel(props: {
               </Button>
             ) : (
               <p>{notifyText}</p>
+            )}
+            {/* Said plainly, because a notification that silently never comes looks like a lost code. */}
+            {notify === "granted" && props.wakes === true && <p className="font-medium text-success">{t.wakesOn}</p>}
+            {notify === "granted" && props.wakes === false && (
+              <>
+                <p className="font-medium text-destructive">{t.wakesOff}</p>
+                <Button variant="secondary" onClick={props.onNotifyChanged}>
+                  {t.retry}
+                </Button>
+              </>
             )}
             <p className="text-muted-foreground">{t.notifyHint}</p>
           </div>

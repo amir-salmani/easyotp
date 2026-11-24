@@ -109,13 +109,17 @@ export function App() {
   // can be woken. Done at every start, because a bridge forgets an address
   // that is not renewed, and again whenever the set of Hosts changes.
   const [notifyTick, setNotifyTick] = useState(0);
+  /** Whether a bridge holds this device's address for every Host. Null until it has been tried. */
+  const [wakes, setWakes] = useState<boolean | null>(null);
   useEffect(() => {
     if (!db || hosts.length === 0 || shell || !pushSupported() || Notification.permission !== "granted") return;
     let stale = false;
     void navigator.serviceWorker.ready.then(async (registration) => {
       const address = await pushAddress(registration);
-      if (!address || stale) return;
-      for (const host of hosts) void leaveAddress(SEED_BRIDGES, host, address);
+      if (stale) return;
+      if (!address) return setWakes(false);
+      const taken = await Promise.all(hosts.map((host) => leaveAddress(SEED_BRIDGES, host, address)));
+      if (!stale) setWakes(taken.every((n) => n > 0));
     });
     return () => {
       stale = true;
@@ -219,6 +223,7 @@ export function App() {
             await db.putHost({ ...host, name });
             setHosts(await db.hosts());
           }}
+          wakes={wakes}
           onNotifyChanged={() => setNotifyTick((n) => n + 1)}
           onRemove={async (host) => {
             // While its key is still here: after this nothing can speak for that box.
