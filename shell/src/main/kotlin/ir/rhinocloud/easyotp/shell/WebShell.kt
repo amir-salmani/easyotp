@@ -76,17 +76,22 @@ class WebShell(
         setBackgroundColor(PAPER)
         addView(view, FrameLayout.LayoutParams(MATCH_PARENT, MATCH_PARENT))
         setOnApplyWindowInsetsListener { frame, insets ->
+            // The insets stop here. Passed on, a WebView on a recent Android
+            // also reports them to the page as safe-area insets, the page pads
+            // for them a second time, and its last button ends up off screen.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.ime())
+                val bars = insets.getInsets(WindowInsets.Type.systemBars() or WindowInsets.Type.displayCutout() or WindowInsets.Type.ime())
                 frame.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+                WindowInsets.CONSUMED
             } else {
                 @Suppress("DEPRECATION")
                 frame.setPadding(
                     insets.systemWindowInsetLeft, insets.systemWindowInsetTop,
                     insets.systemWindowInsetRight, insets.systemWindowInsetBottom,
                 )
+                @Suppress("DEPRECATION")
+                insets.consumeSystemWindowInsets()
             }
-            insets
         }
     }
 
