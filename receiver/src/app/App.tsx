@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
 import { randomKey } from "../ids";
 import { watch } from "../inbox";
+import { leaveAddress, pushAddress, pushSupported, takeBackAddress } from "../push";
 import { DEFAULT_SPAM, isSpam, type SpamSettings } from "../spam";
 import { Db, type PairedHost, type StoredMessage } from "./db";
 import { STRINGS, type Lang } from "./i18n";
@@ -96,6 +97,31 @@ export function App() {
     setLang(next);
     void db?.setLang(next);
   };
+
+  // The service worker words its "a message is waiting" notification itself,
+  // with the app closed, so the language is left where it can read it.
+  useEffect(() => {
+    if (typeof caches === "undefined") return;
+    void caches.open("easyotp-prefs").then((c) => c.put("/lang", new Response(lang))).catch(() => undefined);
+  }, [lang]);
+
+  // With notifications allowed, every Host's box is told where this device
+  // can be woken. Done at every start, because a bridge forgets an address
+  // that is not renewed, and again whenever the set of Hosts changes.
+  const [notifyTick, setNotifyTick] = useState(0);
+  useEffect(() => {
+    if (!db || hosts.length === 0 || shell || !pushSupported() || Notification.permission !== "granted") return;
+    let stale = false;
+    void navigator.serviceWorker.ready.then(async (registration) => {
+      const address = await pushAddress(registration);
+      if (!address || stale) return;
+      for (const host of hosts) void leaveAddress(SEED_BRIDGES, host, address);
+    });
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, boxes, notifyTick]);
 
   const header = useMemo(
     () => (
@@ -193,7 +219,10 @@ export function App() {
             await db.putHost({ ...host, name });
             setHosts(await db.hosts());
           }}
+          onNotifyChanged={() => setNotifyTick((n) => n + 1)}
           onRemove={async (host) => {
+            // While its key is still here: after this nothing can speak for that box.
+            void takeBackAddress(SEED_BRIDGES, host);
             await db.removeHost(host.id);
             setHosts(await db.hosts());
             setMessages(await db.messages());

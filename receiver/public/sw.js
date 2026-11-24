@@ -1,7 +1,11 @@
-// The Receiver's service worker. Its one job is to let the app open with no
-// network: the screens are cached, and messages already received are in
-// IndexedDB. It never touches a request to a bridge.
+// The Receiver's service worker. It does two things. It lets the app open with
+// no network: the screens are cached, and messages already received are in
+// IndexedDB. And it says so when a bridge pushes to tell this device that a
+// message is waiting (DECISIONS D30). It never touches a request to a bridge,
+// and it never sees a message: the push it is woken by carries nothing.
 const CACHE = "easyotp-shell-v2";
+// Where the app leaves the one thing this worker needs to know: the language.
+const PREFS = "easyotp-prefs";
 
 /** The page, and every built file it names. Built files carry a hash in their name. */
 async function cacheShell() {
@@ -20,7 +24,7 @@ self.addEventListener("install", (event) => {
 
 self.addEventListener("activate", (event) => {
   event.waitUntil(
-    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
+    caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== PREFS).map((k) => caches.delete(k)))).then(() => self.clients.claim()),
   );
 });
 
@@ -69,6 +73,32 @@ self.addEventListener("fetch", (event) => {
   // Everything else (the manifest, the icons) can change under the same name:
   // the network first, the cache only when there is none.
   event.respondWith(fetch(event.request).catch(async () => (await caches.match(event.request)) ?? Response.error()));
+});
+
+const WAITING = {
+  fa: { title: "پیامک تازه رسید", body: "برای دیدن آن EasyOTP را باز کنید." },
+  en: { title: "A new SMS has arrived", body: "Open EasyOTP to read it." },
+};
+
+// A bridge says a message is waiting. A browser, an iPhone above all, takes
+// the address away from an app that is pushed to and shows nothing, so every
+// push is shown, even when the app happens to be open.
+self.addEventListener("push", (event) => {
+  event.waitUntil(
+    (async () => {
+      const stored = await caches.open(PREFS).then((c) => c.match("/lang")).then((r) => r?.text()).catch(() => undefined);
+      const lang = stored === "en" ? "en" : "fa";
+      await self.registration.showNotification(WAITING[lang].title, {
+        body: WAITING[lang].body,
+        // One notification, replaced by the next: three codes are not three alarms.
+        tag: "easyotp",
+        renotify: true,
+        icon: "/icons/icon-192.png",
+        lang,
+        dir: lang === "fa" ? "rtl" : "ltr",
+      });
+    })(),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

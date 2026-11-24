@@ -1,0 +1,15 @@
+{
+  "note": "Test-only push signing key. Valid nowhere.",
+  "publicKey": "BGZybmTKTADoSNGr2tzMXWvO1LqWLShYJd2Iw3slHmlVB_WMfvwIRz0xEDEJfj419SX_3STA3WfI126OC0pWxpM",
+  "privateJwk": {
+    "key_ops": [
+      "sign"
+    ],
+    "ext": true,
+    "kty": "EC",
+    "x": "ZnJuZMpMAOhI0ava3Mxda87UupYtKFgl3YjDeyUeaVU",
+    "y": "B_WMfvwIRz0xEDEJfj419SX_3STA3WfI126OC0pWxpM",
+    "crv": "P-256",
+    "d": "JGJIUg5gHSuYy0T_MBgiKy3CUS-ctJfAPdshOVr7vPM"
+  }
+}

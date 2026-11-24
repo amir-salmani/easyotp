@@ -120,6 +120,8 @@ export function Panel(props: {
   lang: Lang;
   hosts: PairedHost[];
   counts: Record<string, number>;
+  /** The answer to "may this app notify" just changed. */
+  onNotifyChanged: () => void;
   spamAuto: boolean;
   onSpamAuto: (auto: boolean) => void;
   onClose: () => void;
@@ -202,7 +204,11 @@ export function Panel(props: {
           <div className="flex flex-col gap-2">
             <p className="font-semibold">{t.notifications}</p>
             {notify === "default" ? (
-              <Button variant="secondary" onClick={async () => (shell ? shell.askNotifications() : setNotify(await Notification.requestPermission()))}>
+              <Button variant="secondary" onClick={async () => {
+                  if (shell) return shell.askNotifications();
+                  setNotify(await Notification.requestPermission());
+                  props.onNotifyChanged();
+                }}>
                 {t.notifyOn}
               </Button>
             ) : (

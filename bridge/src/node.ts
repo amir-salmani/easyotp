@@ -93,6 +93,7 @@ export class FileStore implements BoxStore {
     this.account(boxId, Buffer.byteLength(json));
   }
 
+  // No push from here: this bridge never calls out (BRIDGES), so `notify` is not used.
   async deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full"> {
     // The size as it will be written, which is a little more than its fields.
     const cost = Buffer.byteLength(JSON.stringify(m)) + 1 + (this.sizes.has(boxId) ? 0 : BOX_OVERHEAD_BYTES);

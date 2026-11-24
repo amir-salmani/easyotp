@@ -114,3 +114,19 @@ test("carries pairing messages between two sides", async () => {
     await stop(child);
   }
 });
+
+test("takes no push address, and so never calls out", async () => {
+  // This bridge runs where it is told to reach nothing (docs/BRIDGES.md). A
+  // Receiver that offers an address is told plainly, and uses the other bridge.
+  const { boxKey, url } = newBox();
+  const child = await start();
+  try {
+    const res = await post(`${url}/push`, { endpoint: "https://web.push.apple.com/abc" }, { authorization: `Bearer ${boxKey}` });
+    assert.equal(res.status, 404);
+    assert.deepEqual(await res.json(), { error: "push_unsupported" });
+    // A deposit marked quiet is still an ordinary deposit here.
+    assert.equal((await post(url, { ...sealed(), quiet: true })).status, 200);
+  } finally {
+    await stop(child);
+  }
+});
