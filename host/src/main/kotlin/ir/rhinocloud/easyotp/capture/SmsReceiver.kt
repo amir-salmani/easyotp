@@ -7,6 +7,7 @@ import android.provider.Telephony
 import android.util.Log
 import ir.rhinocloud.easyotp.data.CapturedMessage
 import ir.rhinocloud.easyotp.data.Outbox
+import ir.rhinocloud.easyotp.data.Settings
 import ir.rhinocloud.easyotp.service.ForwarderService
 import java.util.concurrent.Executors
 
@@ -51,6 +52,14 @@ class SmsReceiver : BroadcastReceiver() {
                     Log.w(TAG, "unattributable message dropped; sub=$subscriptionId")
                     return@execute
                 }
+
+                // Nothing is kept that has nowhere to go: before the owner has
+                // agreed and paired someone, this is just a phone receiving its
+                // own messages. If the settings cannot be read, the message is
+                // kept, because "nobody is paired" would then be a guess.
+                val wanted = runCatching { Settings(context.applicationContext).receiversFor(sim.iccid).isNotEmpty() }
+                    .getOrDefault(true)
+                if (!wanted) return@execute
 
                 val stored = Outbox(context.applicationContext).enqueue(
                     CapturedMessage(

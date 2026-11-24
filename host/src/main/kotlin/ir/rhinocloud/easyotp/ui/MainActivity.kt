@@ -15,7 +15,7 @@ class MainActivity : Activity() {
         val padding = (24 * resources.displayMetrics.density).toInt()
         setContentView(
             TextView(this).apply {
-                setText(R.string.placeholder)
+                setText(R.string.app_name)
                 textSize = 18f
                 setPadding(padding, padding, padding, padding)
             },

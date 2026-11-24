@@ -1,8 +1,14 @@
 {
   "note": "Sealed by ReceiverSealerTest in the Host's unit tests.",
-  "ct": "Q0q-5pq_NyNmdtdD1700I2Nf9m0BLrQqZwK76MJ_1a_7BBAGDRpKhOqHqVSK7eGVKE9EqcMSgByFax1dbCELjyB7LE6CPXnACT_hgLf_5Y9Qm42EHO75Vqb7uAwu3Lzt9bm2oEyDGVJg4Gbri93IshODxwoZxZunz1ZdbjRZjUD2Zd4dg-mtsIicpZlODeIh3dwfoZuCNskjnACgE8T3S7YJaAMZMDZp4JiqWL0YylI4VZNx",
+  "ct": "hGVpejtsn0Tw9W1jSMarH_yPd4vREpdXvIz9Dr-0NyGqS4uFs3VjF5c3WS7UHdnrvgG-IeA226uoWyDXE0GAU0HIbfVl3UtqVTOkqSbg8MryBSl7798OHz8TaM0jgbJPkY6Dskl4yPElOrAwMyzvRAqJodyyJu5TtHYcqkMISsxMpHQ74xcoTq7zn6vjxVKSliTWzXFFqAy7MdcnK4hPQ2ZBz8OR_H3q3kjxYm0xXr1VVZO5",
   "plaintext": "{\"code\":\"4821\",\"at\":1700000000000,\"v\":2,\"sim\":\"همراه اول\",\"from\":\"+98200\",\"id\":\"Ri5qnUHphAknkmMKdTNHK1_4XBwKXoI0\",\"body\":\"رمز یکبار مصرف: 4821\"}",
   "publicKey": "cPBUlcXX9VZOze4ZSgxhSk3rUs3a1w92okcGQO2Xk04",
   "id": "Ri5qnUHphAknkmMKdTNHK1_4XBwKXoI0",
-  "enc": "TfvBk5DkJ1zMqcypsayu29SZ7C-sjIXmvMucp6xTJQo"
+  "enc": "0MRKN2tidMINWvsT_AXdl13pcgNwk2n8e8SWJMqLaB0",
+  "status": {
+    "ct": "-TO5Aro6bgbILWTPdTiB9c-tUHTW_4iM4kCJ-PtH7Tttl8Ts1km5OC1dz-bbT4vnL_nBP-8HsqHG6Zxv2OPGSBPIj4M77rkNPx6ibPI7fRt3kOIKIyJ0KeKbDNC_IeWIBooMnH3ywf-8ygKWrgV8xt4Fr8fyzJtK_YtdbqAQBvzaua9URnN6YgmZMR3eXa70f8QrMIIjP9fxt1nqp4uxggad2J5yDajLns1pacyZWmq0JjFoNSXiWrrZh72xGVBj-EZL7joTJto",
+    "plaintext": "{\"at\":1700000000000,\"v\":2,\"pending\":2,\"charging\":false,\"ack\":\"theCommandThisAnswers0000000000\",\"k\":\"status\",\"id\":\"7MQ1rHzL0wVdY55EOX4FO1wYI85KnrxL\",\"battery\":17,\"net\":null,\"every\":900}",
+    "id": "7MQ1rHzL0wVdY55EOX4FO1wYI85KnrxL",
+    "enc": "JwxiF0zJ5v06TFFOC0Itol5HiFdzQtYY_hYuuwHtenQ"
+  }
 }

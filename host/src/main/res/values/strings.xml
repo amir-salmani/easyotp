@@ -1,7 +1,10 @@
 <resources>
     <string name="app_name">EasyOTP Host</string>
-    <string name="placeholder">EasyOTP Host is installed. Setup is not available in this build yet.</string>
     <string name="notification_channel">Forwarding</string>
     <string name="notification_idle">Watching for messages</string>
     <string name="notification_pending">%1$d waiting to send</string>
+    <string name="ring_channel">Ring requests</string>
+    <string name="ring_text">%1$s asked this phone to ring</string>
+    <string name="test_sim">Test</string>
+    <string name="test_body">This is a test message from %1$s. If you can read it, forwarding works.</string>
 </resources>

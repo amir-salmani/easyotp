@@ -49,14 +49,17 @@ class BridgeClient(
     /**
      * @param boxId the Receiver's box, learned at pairing.
      * @param messageId the same id that is inside the seal; see [Payload.wireId].
+     * @param tag a bridge keeps only the newest message with a given tag. Used
+     *   for status reports, which would otherwise fill the box (DECISIONS D26).
      */
-    fun deposit(boxId: String, messageId: String, sealed: SealedEnvelope): DepositResult {
+    fun deposit(boxId: String, messageId: String, sealed: SealedEnvelope, tag: String? = null): DepositResult {
         // Shape must match bridge/src/core.ts.
         val body = JSONObject()
             .put("v", 2)
             .put("id", messageId)
             .put("enc", ReceiverSealer.base64UrlEncode(sealed.enc))
             .put("ct", ReceiverSealer.base64UrlEncode(sealed.ciphertext))
+            .apply { if (tag != null) put("tag", tag) }
             .toString()
             .toByteArray()
 

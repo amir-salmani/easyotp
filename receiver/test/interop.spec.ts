@@ -17,7 +17,7 @@
  * taken from CI.
  */
 import { describe, expect, it } from "vitest";
-import { fromB64url, open } from "../src/open";
+import { fromB64url, open, openAny } from "../src/open";
 import { INTEROP_PRIVATE_KEY, INTEROP_PUBLIC_KEY } from "./interop-keys";
 import fixture from "./hpke-fixture.json";
 
@@ -42,5 +42,11 @@ describe("a message sealed by the Host", () => {
     // The Host splits Tink's output at a fixed offset. Any other length would
     // corrupt every message.
     expect(fromB64url(fixture.enc)).toHaveLength(32);
+  });
+
+  it("opens a status report, with what the phone would not say left as null", async () => {
+    const status = await openAny(INTEROP_PRIVATE_KEY, fixture.status.id, fixture.status.enc, fixture.status.ct);
+    expect(status).toEqual(JSON.parse(fixture.status.plaintext));
+    expect(status).toMatchObject({ k: "status", every: 900, battery: 17, charging: false, net: null, pending: 2 });
   });
 });

@@ -70,6 +70,24 @@ class SimRegistry(private val context: Context) {
         return activeSims().firstOrNull { it.subscriptionId == subscriptionId }
     }
 
+    /**
+     * What a Receiver sees a SIM called: the carrier's name, and the slot when
+     * the phone holds more than one, since two lines from one carrier are
+     * common. Falls back to something readable when the SIM is gone or the
+     * permission is.
+     */
+    fun labelFor(routingKey: String): String {
+        val sims = activeSims()
+        val sim = sims.firstOrNull { it.iccid == routingKey } ?: return "SIM"
+        val slot = "SIM ${sim.slotIndex + 1}"
+        val carrier = sim.carrierName?.trim().orEmpty()
+        return when {
+            carrier.isEmpty() -> slot
+            sims.size > 1 -> "$carrier · $slot"
+            else -> carrier
+        }
+    }
+
     companion object {
         /**
          * The key a SIM's route is stored under.
