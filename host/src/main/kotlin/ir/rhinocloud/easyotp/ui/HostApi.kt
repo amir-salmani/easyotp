@@ -22,6 +22,7 @@ import ir.rhinocloud.easyotp.pair.HttpSlotTransport
 import ir.rhinocloud.easyotp.pair.PairCodec
 import ir.rhinocloud.easyotp.pair.PairedReceiver
 import ir.rhinocloud.easyotp.pair.PairingFailed
+import ir.rhinocloud.easyotp.service.Buzzer
 import ir.rhinocloud.easyotp.service.ForwarderService
 import ir.rhinocloud.easyotp.service.HostEvents
 import ir.rhinocloud.easyotp.service.ObeyedCommands
@@ -83,6 +84,8 @@ class HostApi(private val activity: MainActivity) {
             )
             .put("pending", runCatching { Outbox(context).pendingCount() }.getOrDefault(0L))
             .put("test", HostEvents.lastTest?.let { JSONObject().put("ok", it.ok).put("at", it.at) } ?: JSONObject.NULL)
+            // While the phone rings, the screens say who asked and offer to stop it.
+            .put("ring", Buzzer.ringingFor?.let { JSONObject().put("from", it) } ?: JSONObject.NULL)
             .put("pair", pair?.toJson() ?: JSONObject.NULL)
             .toString()
     }
@@ -212,6 +215,13 @@ class HostApi(private val activity: MainActivity) {
     /** Sends every Receiver a test message. The result is in [state] under `test`. */
     @JavascriptInterface
     fun sendTest() = ForwarderService.wake(context, ForwarderService.ACTION_TEST)
+
+    /** Whoever is holding the phone has heard it ring. */
+    @JavascriptInterface
+    fun stopRing() {
+        Buzzer.silence(context)
+        context.getSystemService(android.app.NotificationManager::class.java)?.cancel(ForwarderService.RING_NOTIFICATION_ID)
+    }
 
     /** Leaves the app, when the page has nothing left for Back to close. */
     @JavascriptInterface

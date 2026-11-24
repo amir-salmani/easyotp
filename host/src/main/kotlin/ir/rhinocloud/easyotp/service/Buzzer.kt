@@ -17,8 +17,9 @@ import android.util.Log
  * D26). The point is to get someone near the phone to look at it: to plug it
  * in, or to confirm it is where it should be.
  *
- * It stops by itself after [RING_MILLIS], and at once when someone opens the
- * app, or taps or swipes away the notification that says why it is ringing.
+ * It stops by itself after [RING_MILLIS], and at once when someone presses
+ * the button the app shows while it rings, or taps or swipes away the
+ * notification that says why it is ringing.
  * A sound nobody at the phone can turn off is a reason to uninstall.
  *
  * It plays as an alarm, and turns the alarm volume up for as long as it rings.
@@ -31,9 +32,16 @@ object Buzzer {
     private var player: MediaPlayer? = null
     private var restoreVolume: Int? = null
 
-    fun ring(context: Context) = main.post {
+    /** Who asked for the ring that is sounding now, or null when the phone is quiet. For the screens. */
+    @Volatile
+    var ringingFor: String? = null
+        private set
+
+    fun ring(context: Context, askedBy: String) = main.post {
         val app = context.applicationContext
         stop(app)
+        ringingFor = askedBy
+        HostEvents.changed()
         val audio = app.getSystemService(AudioManager::class.java)
         runCatching {
             if (audio != null) {
@@ -76,6 +84,10 @@ object Buzzer {
 
     private fun stop(context: Context) {
         main.removeCallbacksAndMessages(null)
+        if (ringingFor != null) {
+            ringingFor = null
+            HostEvents.changed()
+        }
         runCatching { player?.stop() }
         runCatching { player?.release() }
         player = null

@@ -27,6 +27,8 @@ export function mockNative(): Native {
     receivers: [],
     pending: 0,
     test: null,
+    // ?ring plays a phone that is ringing.
+    ring: query.has("ring") ? { from: "iPhone امیر" } : null,
     pair: null,
   };
   const changed = () => window.dispatchEvent(new Event(CHANGE));
@@ -101,6 +103,10 @@ export function mockNative(): Native {
         state.test = { ok: true, at: Date.now() };
         changed();
       }, 600);
+    },
+    stopRing() {
+      state.ring = null;
+      changed();
     },
     exit() {},
   };

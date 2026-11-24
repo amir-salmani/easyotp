@@ -73,6 +73,9 @@ const fa = {
   errStore: "اتصال ذخیره نشد. دوباره تلاش کنید.",
   newCode: "کد تازه",
   back: "بازگشت",
+  ringTitle: "این گوشی دارد زنگ می‌زند",
+  ringBody: (name: string) => `«${name}» از راه دور خواست این گوشی زنگ بزند تا کسی به آن سر بزند. اشکالی پیش نیامده است.`,
+  ringStop: "خاموش کردن زنگ",
 };
 
 const en: typeof fa = {
@@ -140,6 +143,9 @@ const en: typeof fa = {
   errStore: "The connection could not be saved. Try again.",
   newCode: "New code",
   back: "Back",
+  ringTitle: "This phone is ringing",
+  ringBody: (name) => `“${name}” asked it to ring from far away, so that someone would come and look at it. Nothing is wrong.`,
+  ringStop: "Stop ringing",
 };
 
 export type HostStrings = typeof fa;

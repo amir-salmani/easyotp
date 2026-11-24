@@ -292,7 +292,7 @@ class ForwarderService : Service() {
         Log.i(TAG, "command ${command.what}")
         runCatching { awake?.acquire(AWAKE_MILLIS) }
         if (command.what == Command.What.BUZZ) {
-            Buzzer.ring(this)
+            Buzzer.ring(this, receiver.label)
             notifyRing(receiver.label)
         }
         // The answer names the command, which is how the person who pressed
@@ -432,7 +432,7 @@ class ForwarderService : Service() {
         private const val CHANNEL_ID = "easyotp.forwarder"
         private const val NOTIFICATION_ID = 1
         private const val RING_CHANNEL_ID = "easyotp.ring"
-        private const val RING_NOTIFICATION_ID = 2
+        const val RING_NOTIFICATION_ID = 2
 
         /** Report on the phone now, and look at every bridge for commands. */
         const val ACTION_STATUS = "ir.rhinocloud.easyotp.STATUS"

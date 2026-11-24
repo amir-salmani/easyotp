@@ -22,6 +22,8 @@ export interface HostState {
   /** SMS captured and not yet handed to a bridge. */
   pending: number;
   test: { ok: boolean; at: number } | null;
+  /** Set while the phone is ringing because a Receiver asked: who asked. */
+  ring: { from: string } | null;
   pair: null | {
     stage: "waiting" | "picture" | "failed";
     code: string;
@@ -46,6 +48,7 @@ export interface Native {
   setReceiverSims(id: string, sims: string): void;
   removeReceiver(id: string): void;
   sendTest(): void;
+  stopRing(): void;
   exit(): void;
 }
 

@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, Check, ChevronDown, Languages, Send, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, BellRing, Check, ChevronDown, Languages, Send, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { faDigits, type Lang } from "../app/i18n";
 import { Alert, Button, Card, PictureCard, Screen } from "../app/ui";
@@ -45,13 +45,14 @@ export function HostApp({ native }: { native: Native }) {
   // The phone's Back button closes whatever is open, and leaves when nothing is.
   useEffect(() => {
     const back = () => {
-      if (state.pair) native.pairCancel();
+      if (state.ring) native.stopRing();
+      else if (state.pair) native.pairCancel();
       else if (open) setOpen(null);
       else native.exit();
     };
     window.addEventListener(BACK, back);
     return () => window.removeEventListener(BACK, back);
-  }, [native, state.pair, open]);
+  }, [native, state.ring, state.pair, open]);
 
   const header = (
     <header className="flex items-center justify-between">
@@ -70,8 +71,27 @@ export function HostApp({ native }: { native: Native }) {
     </header>
   );
 
+  // On top of whatever is showing: someone hearing the phone ring and opening
+  // the app should see why, and the one button that ends it.
+  const ringing = state.ring && (
+    <div role="alertdialog" aria-modal="true" aria-labelledby="ring-title" className="fixed inset-0 z-50 flex items-end bg-foreground/40 p-4">
+      <Card className="mx-auto flex w-full max-w-md flex-col gap-4">
+        <h2 id="ring-title" className="flex items-center gap-3 text-xl font-bold">
+          <BellRing aria-hidden size={28} className="shrink-0 text-brand" />
+          {t.ringTitle}
+        </h2>
+        <p>{t.ringBody(state.ring.from)}</p>
+        <Button autoFocus onClick={() => native.stopRing()}>
+          {t.ringStop}
+        </Button>
+      </Card>
+    </div>
+  );
+
   if (state.pair) {
     return (
+      <>
+      {ringing}
       <PairScreen
         t={t}
         lang={lang}
@@ -84,10 +104,13 @@ export function HostApp({ native }: { native: Native }) {
           if (id) setOpen(id);
         }}
       />
+      </>
     );
   }
 
   return (
+    <>
+    {ringing}
     <Setup t={t} lang={lang} header={header} state={state} native={native}>
       <Home
         t={t}
@@ -101,6 +124,7 @@ export function HostApp({ native }: { native: Native }) {
         clearNotice={() => setNotice(null)}
       />
     </Setup>
+    </>
   );
 }
 
