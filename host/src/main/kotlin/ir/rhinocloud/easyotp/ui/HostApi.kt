@@ -26,6 +26,7 @@ import ir.rhinocloud.easyotp.service.Buzzer
 import ir.rhinocloud.easyotp.service.ForwarderService
 import ir.rhinocloud.easyotp.service.HostEvents
 import ir.rhinocloud.easyotp.service.ObeyedCommands
+import ir.rhinocloud.easyotp.service.SendLedger
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
@@ -57,13 +58,17 @@ class HostApi(private val activity: MainActivity) {
             .put("version", versionName())
             .put("label", label())
             .put("consent", settings.consent)
+            .put("calls", settings.calls)
             .put(
                 "perms",
                 JSONObject()
                     .put("sms", granted(Manifest.permission.RECEIVE_SMS))
                     .put("phone", granted(Manifest.permission.READ_PHONE_STATE))
                     .put("notify", Build.VERSION.SDK_INT < 33 || granted(Manifest.permission.POST_NOTIFICATIONS))
-                    .put("battery", context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) ?: true),
+                    .put("battery", context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) ?: true)
+                    // The two optional powers (DECISIONS D31). Asked for only when their switch is turned on.
+                    .put("send", granted(Manifest.permission.SEND_SMS))
+                    .put("calls", granted(Manifest.permission.READ_CALL_LOG) && granted(Manifest.permission.ANSWER_PHONE_CALLS)),
             )
             .put(
                 "sims",
@@ -76,7 +81,7 @@ class HostApi(private val activity: MainActivity) {
                 JSONArray().apply {
                     settings.receivers().forEach { r ->
                         put(
-                            JSONObject().put("id", r.id).put("label", r.label).put("pairedAt", r.pairedAt)
+                            JSONObject().put("id", r.id).put("label", r.label).put("pairedAt", r.pairedAt).put("canSend", r.canSend)
                                 .put("sims", r.sims?.let { JSONArray(it.toList()) } ?: JSONObject.NULL),
                         )
                     }
@@ -100,6 +105,10 @@ class HostApi(private val activity: MainActivity) {
                 "notify" -> if (Build.VERSION.SDK_INT >= 33) {
                     activity.requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 3)
                 }
+                "send" -> activity.requestPermissions(arrayOf(Manifest.permission.SEND_SMS), 4)
+                "calls" -> activity.requestPermissions(
+                    arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS), 5,
+                )
                 // Android shows its own yes-or-no question for this one.
                 "battery" -> activity.startActivity(
                     Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
@@ -205,10 +214,25 @@ class HostApi(private val activity: MainActivity) {
         settings.setReceiverSims(id, chosen)
     }
 
+    /** Whether this Receiver may make the phone send an SMS. Its Receiver learns of the change with the next report. */
+    @JavascriptInterface
+    fun setReceiverCanSend(id: String, allowed: Boolean) = change {
+        settings.setReceiverCanSend(id, allowed)
+        ForwarderService.wake(context, ForwarderService.ACTION_RELOAD)
+    }
+
+    /** Whether Receivers are told of calls and may decline them. */
+    @JavascriptInterface
+    fun setCalls(on: Boolean) = change {
+        settings.calls = on
+        ForwarderService.wake(context, ForwarderService.ACTION_RELOAD)
+    }
+
     @JavascriptInterface
     fun removeReceiver(id: String) = change {
         settings.removeReceiver(id)
         ObeyedCommands.forget(context, id)
+        runCatching { SendLedger(context, settings.installSalt()).forget(id) }
         ForwarderService.wake(context, ForwarderService.ACTION_RELOAD)
     }
 

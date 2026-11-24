@@ -21,6 +21,16 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!--
+      Asked for only if the owner turns the feature on (DECISIONS D31), and
+      never at setup. SEND_SMS: answering a message from a Receiver.
+      READ_CALL_LOG: the number of a call that is ringing; nothing is read from
+      the log itself. ANSWER_PHONE_CALLS: ending a ringing call a Receiver
+      declines; this app never answers one.
+    -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
 
     <application
         android:name=".EasyOtpApp"
@@ -55,6 +65,16 @@
             android:permission="android.permission.BROADCAST_SMS">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Told when the phone rings. Does nothing unless the owner turned calls on. -->
+        <receiver
+            android:name=".capture.CallReceiver"
+            android:exported="true"
+            android:permission="android.permission.READ_PRIVILEGED_PHONE_STATE">
+            <intent-filter>
+                <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
         </receiver>
 

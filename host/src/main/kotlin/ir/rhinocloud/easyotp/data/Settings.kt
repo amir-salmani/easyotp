@@ -38,6 +38,12 @@ data class Receiver(
      * every SIM in the phone, including one put in later.
      */
     val sims: Set<String>? = null,
+    /**
+     * Whether this Receiver may make the phone send an SMS (DECISIONS D31).
+     * Off unless the owner turns it on, here on the phone, for this one
+     * Receiver: sending as someone's SIM is a different power from reading it.
+     */
+    val canSend: Boolean = false,
 ) {
     fun reads(simKey: String): Boolean = sims == null || simKey in sims
 }
@@ -137,6 +143,15 @@ class Settings(
         putReceivers(receiversIn(this).map { if (it.id == id) it.copy(sims = sims) else it })
     }
 
+    fun setReceiverCanSend(id: String, canSend: Boolean) = mutate {
+        putReceivers(receiversIn(this).map { if (it.id == id) it.copy(canSend = canSend) else it })
+    }
+
+    /** Whether calls to this phone are told to its Receivers, and may be declined by them (DECISIONS D31). */
+    var calls: Boolean
+        get() = read().optBoolean(KEY_CALLS, false)
+        set(value) = mutate { put(KEY_CALLS, value) }
+
     private fun receiversIn(stored: JSONObject): List<Receiver> {
         val array = stored.optJSONArray(KEY_RECEIVERS) ?: return emptyList()
         return (0 until array.length()).map { i ->
@@ -151,6 +166,7 @@ class Settings(
                 commandBoxKey = r.getString("commandBoxKey"),
                 pairedAt = r.optLong("pairedAt"),
                 sims = sims?.let { (0 until it.length()).map(it::getString).toSet() },
+                canSend = r.optBoolean("canSend", false),
             )
         }
     }
@@ -170,6 +186,7 @@ class Settings(
                             .put("commandPrivateKey", r.commandKeys.privateKey)
                             .put("commandBoxKey", r.commandBoxKey)
                             .put("pairedAt", r.pairedAt)
+                            .put("canSend", r.canSend)
                             // Absent, not empty: absent means every SIM.
                             .apply { r.sims?.let { put("sims", JSONArray(it.toList())) } },
                     )
@@ -223,6 +240,7 @@ class Settings(
         private const val KEY_RECEIVERS = "receivers"
         private const val KEY_LABEL = "hostLabel"
         private const val KEY_CONSENT = "consent"
+        private const val KEY_CALLS = "calls"
         private const val KEY_SALT = "installSalt"
         private const val SALT_BYTES = 32
 

@@ -9,6 +9,7 @@ import ir.rhinocloud.easyotp.data.CapturedMessage
 import ir.rhinocloud.easyotp.data.Outbox
 import ir.rhinocloud.easyotp.data.Settings
 import ir.rhinocloud.easyotp.service.ForwarderService
+import ir.rhinocloud.easyotp.service.SendLedger
 import java.util.concurrent.Executors
 
 /**
@@ -69,6 +70,13 @@ class SmsReceiver : BroadcastReceiver() {
                         receivedAt = receivedAt,
                     ),
                 )
+
+                // Whoever wrote to this SIM may be answered from it (DECISIONS D31).
+                // Kept as a hash, and only once the message itself is safe.
+                runCatching {
+                    SendLedger(context.applicationContext, Settings(context.applicationContext).installSalt())
+                        .heardFrom(sim.iccid, sender, receivedAt)
+                }
 
                 // Never the sender or the body (THREAT-MODEL rule 1). Length and
                 // slot are enough to tell a working pipeline from a stalled one.

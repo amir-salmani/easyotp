@@ -13,7 +13,18 @@ data class CapturedMessage(
     val sender: String,
     val body: String,
     val receivedAt: Long,
-)
+    /**
+     * What happened on the SIM: an SMS, or a call that is ringing or was
+     * missed. See [ir.rhinocloud.easyotp.net.Payload.kind]. A call has no body.
+     */
+    val kind: String = KIND_SMS,
+) {
+    companion object {
+        const val KIND_SMS = "sms"
+        const val KIND_CALL = "call"
+        const val KIND_MISSED = "missed"
+    }
+}
 
 /** A row ready to be delivered. Sender and body are decrypted on read. */
 data class PendingMessage(
@@ -23,6 +34,7 @@ data class PendingMessage(
     val body: String,
     val receivedAt: Long,
     val attempts: Int,
+    val kind: String = CapturedMessage.KIND_SMS,
 )
 
 /**
@@ -80,6 +92,7 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         val payload = JSONObject()
             .put("sender", message.sender)
             .put("body", message.body)
+            .put("kind", message.kind)
             .toString()
             .toByteArray()
 
@@ -133,6 +146,8 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
                     body = payload.optString("body"),
                     receivedAt = cursor.getLong(2),
                     attempts = cursor.getInt(4),
+                    // Rows written before calls existed have no kind, and are SMS.
+                    kind = payload.optString("kind").ifEmpty { CapturedMessage.KIND_SMS },
                 )
             }
         }
@@ -245,7 +260,10 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         private const val DEDUPE_BUCKET_MS = 10_000L
 
         fun dedupeKey(m: CapturedMessage): String {
-            val material = "${m.iccid} ${m.sender} ${m.body} ${m.receivedAt / DEDUPE_BUCKET_MS}"
+            // The kind is added only for what is not an SMS, so the id of every
+            // SMS already queued or delivered stays what it was.
+            val kind = if (m.kind == CapturedMessage.KIND_SMS) "" else " ${m.kind}"
+            val material = "${m.iccid} ${m.sender} ${m.body} ${m.receivedAt / DEDUPE_BUCKET_MS}$kind"
             return MessageDigest.getInstance("SHA-256")
                 .digest(material.toByteArray())
                 .joinToString("") { "%02x".format(it) }

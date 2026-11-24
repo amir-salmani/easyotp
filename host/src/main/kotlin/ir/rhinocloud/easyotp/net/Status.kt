@@ -25,7 +25,11 @@ data class HostStatus(
     /** The command this report answers, if it answers one. */
     val ack: String? = null,
 ) {
-    fun encode(): ByteArray = JSONObject()
+    /**
+     * @param can what the Receiver this copy is sealed to may ask for beyond
+     *   ringing: "sms" to send, "calls" to decline. It shows only those buttons.
+     */
+    fun encode(can: List<String> = emptyList()): ByteArray = JSONObject()
         .put("v", 2)
         .put("k", "status")
         .put("id", id)
@@ -37,6 +41,7 @@ data class HostStatus(
         .put("net", net ?: JSONObject.NULL)
         .put("pending", pending)
         .apply { if (ack != null) put("ack", ack) }
+        .apply { if (can.isNotEmpty()) put("can", org.json.JSONArray(can)) }
         .toString()
         .toByteArray()
 
@@ -47,8 +52,18 @@ data class HostStatus(
 }
 
 /** Something a paired Receiver asks this phone to do. */
-data class Command(val id: String, val at: Long, val what: What) {
-    enum class What { BUZZ, PING, HUSH }
+data class Command(
+    val id: String,
+    val at: Long,
+    val what: What,
+    /** For SMS: who to send to. */
+    val to: String? = null,
+    /** For SMS, and for DECLINE when the caller should be told why: what to say. */
+    val text: String? = null,
+    /** For SMS: which SIM to send from, as [Payload.simKey] named it. */
+    val sim: String? = null,
+) {
+    enum class What { BUZZ, PING, HUSH, SMS, DECLINE }
 }
 
 /**
@@ -83,9 +98,12 @@ class CommandInbox(private val keys: HpkeKeyPair, private val memory: CommandMem
                 "buzz" -> Command.What.BUZZ
                 "ping" -> Command.What.PING
                 "hush" -> Command.What.HUSH
+                "sms" -> Command.What.SMS
+                "decline" -> Command.What.DECLINE
                 else -> return null
             }
-            Command(envelopeId, m.optLong("at"), what)
+            val text = { key: String -> (m.opt(key) as? String)?.takeIf { it.isNotEmpty() } }
+            Command(envelopeId, m.optLong("at"), what, to = text("to"), text = text("text"), sim = text("sim"))
         }.getOrNull() ?: return null
 
         if (!seen.add(command.id)) return null
