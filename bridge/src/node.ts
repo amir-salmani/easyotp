@@ -10,7 +10,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { Box, type Sealed } from "./box";
+import { Box, type Sealed, Pace } from "./box";
 import { handle, type BoxStore, type PairStore, type Store } from "./core";
 import { Slots } from "./slot";
 import { KEY_SHAPE } from "./ids";
@@ -94,7 +94,10 @@ export class FileStore implements BoxStore {
   }
 
   // No push from here: this bridge never calls out (BRIDGES), so `notify` is not used.
-  async deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full"> {
+  private pace = new Pace();
+
+  async deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full" | "limited"> {
+    if (!this.pace.allow(boxId, m.at)) return "limited";
     // The size as it will be written, which is a little more than its fields.
     const cost = Buffer.byteLength(JSON.stringify(m)) + 1 + (this.sizes.has(boxId) ? 0 : BOX_OVERHEAD_BYTES);
     if (this.total + cost > this.maxTotalBytes) return "full";

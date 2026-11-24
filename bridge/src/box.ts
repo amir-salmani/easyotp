@@ -34,7 +34,44 @@ export const LIMITS = {
   maxBoxBytes: 512 * 1024,
   /** A code this old is useless, and a bridge is not an archive. */
   retentionMs: 48 * 60 * 60 * 1000,
+  /**
+   * Deposits per box in any minute. A real Host sends a few SMS, a report
+   * every twelve minutes, and a copy of each at every bridge. Thirty a minute
+   * is far above that and far below a flood: whoever learns a box id can
+   * deposit, and without a pace they could push every real message out of
+   * the box by sheer count (THREAT-MODEL A5).
+   */
+  depositsPerMinute: 30,
 } as const;
+
+/**
+ * Counts deposits per box over the last minute. Memory only: a bridge that
+ * restarts forgives, which costs nothing, since a flood would have to start
+ * again from zero. Bounded, so made-up box ids cannot fill memory.
+ */
+export class Pace {
+  private seen = new Map<string, number[]>();
+
+  constructor(
+    private perMinute: number = LIMITS.depositsPerMinute,
+    private maxBoxes = 10_000,
+  ) {}
+
+  /** Whether a deposit to this box is allowed now. An allowed one is counted. */
+  allow(boxId: string, now: number): boolean {
+    const recent = (this.seen.get(boxId) ?? []).filter((at) => now - at < 60_000);
+    if (recent.length >= this.perMinute) {
+      this.seen.set(boxId, recent);
+      return false;
+    }
+    recent.push(now);
+    this.seen.delete(boxId);
+    this.seen.set(boxId, recent);
+    // A Map keeps insertion order, so the first key is the box heard from least recently.
+    while (this.seen.size > this.maxBoxes) this.seen.delete(this.seen.keys().next().value!);
+    return true;
+  }
+}
 
 export const sizeOf = (m: Sealed) => m.id.length + m.enc.length + m.ct.length + (m.tag?.length ?? 0);
 

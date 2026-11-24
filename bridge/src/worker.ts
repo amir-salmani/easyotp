@@ -3,7 +3,7 @@
  * messages; everything else is `core.ts`.
  */
 import { DurableObject } from "cloudflare:workers";
-import { Box, LIMITS, type Sealed } from "./box";
+import { Box, LIMITS, Pace, type Sealed } from "./box";
 import { handle, type Store } from "./core";
 import { log } from "./log";
 import { PUSH_ADDRESS_TTL_MS, tickle, type PushAddress, type Vapid } from "./push";
@@ -60,7 +60,11 @@ export class BoxObject extends DurableObject<Env> {
     await this.ctx.storage.setAlarm(Date.now() + LIMITS.retentionMs);
   }
 
-  async deposit(m: Sealed, notify: boolean): Promise<"stored" | "duplicate"> {
+  /** One box per object, so the pace is this box's alone. */
+  private pace = new Pace();
+
+  async deposit(m: Sealed, notify: boolean): Promise<"stored" | "duplicate" | "limited"> {
+    if (!this.pace.allow("box", m.at)) return "limited";
     const box = await this.load();
     const outcome = box.add(m);
     if (outcome === "stored") {

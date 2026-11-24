@@ -163,3 +163,19 @@ describe("what a bridge accepts", () => {
     expect((await exports.default.fetch("https://bridge.test/forward", { method: "POST" })).status).toBe(404);
   });
 });
+
+describe("a flood of deposits to one box", () => {
+  it("is refused past thirty a minute, with an answer the Host will retry", async () => {
+    // Whoever learns a box id can deposit. Without a pace they could push the
+    // real messages out of the box by sheer count.
+    const { url } = await newBox();
+    const answers: number[] = [];
+    for (let i = 0; i < 32; i++) answers.push((await deposit(url, sealed())).status);
+    expect(answers.slice(0, 30).every((s) => s === 200)).toBe(true);
+    expect(answers.slice(30)).toEqual([429, 429]);
+    // Another box is not affected.
+    const other = await newBox();
+    expect((await deposit(other.url, sealed())).status).toBe(200);
+  });
+});
+
