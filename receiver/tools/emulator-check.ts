@@ -185,7 +185,11 @@ try {
   // The phone rings. This Receiver is told, declines, and has the caller told why.
   adb("emu", "gsm", "call", "09121234567");
   const ringing = await until("the call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "call")), 120_000);
-  await sendCommand(SEED_BRIDGES, mine.host, "decline", steadyFetch, { text: "بعداً تماس می‌گیرم." });
+  // A decline names the call. One naming another number ends nothing, and its words are not sent.
+  await sendCommand(SEED_BRIDGES, mine.host, "decline", steadyFetch, { to: "+989000000000", text: "به شماره‌ی اشتباه" });
+  const wrong = await until("the wrong decline's refusal", async () => (await collect(), record("به شماره‌ی اشتباه")), 120_000);
+  if (wrong.ok || wrong.why !== "no_call") throw new Error(`a decline for another call: ok=${wrong.ok} why=${wrong.why}`);
+  await sendCommand(SEED_BRIDGES, mine.host, "decline", steadyFetch, { to: ringing.from, text: "بعداً تماس می‌گیرم." });
   const told = await until("the caller to be told", async () => (await collect(), record("بعداً تماس می‌گیرم.")), 120_000);
   if (!told.ok || told.from !== ringing.from) throw new Error(`decline: ok=${told.ok} why=${told.why} to=${told.from}`);
   await until("the call to be ended by the phone", async () => !/inbound/.test(adb("emu", "gsm", "list")), 30_000);
@@ -195,7 +199,7 @@ try {
   await until("the second call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "call" && m.from !== ringing.from)), 120_000);
   adb("emu", "gsm", "cancel", "09127654321");
   const missed = await until("the missed call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "missed")), 120_000);
-  step(`a call from ${ringing.from} was declined with a message; one from ${missed.from} was reported missed`);
+  step(`a decline naming another call was refused; a call from ${ringing.from} was declined with a message; one from ${missed.from} was reported missed`);
 
   // Ring.
   adb("logcat", "-c");

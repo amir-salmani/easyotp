@@ -21,6 +21,8 @@ object SendPolicy {
     const val NO_SIM = "no_sim"
     const val NO_PERMISSION = "no_permission"
     const val FAILED = "failed"
+    /** A decline that found no such call ringing: it ended, or this is another call. */
+    const val NO_CALL = "no_call"
 
     /** About three SMS of Persian text. A reply, not a letter. */
     const val MAX_CHARS = 200

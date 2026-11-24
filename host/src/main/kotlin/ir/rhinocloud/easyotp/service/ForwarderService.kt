@@ -25,6 +25,7 @@ import ir.rhinocloud.easyotp.data.Outbox
 import ir.rhinocloud.easyotp.data.PendingMessage
 import ir.rhinocloud.easyotp.data.Settings
 import ir.rhinocloud.easyotp.data.Receiver
+import ir.rhinocloud.easyotp.data.SentRecord
 import ir.rhinocloud.easyotp.net.BridgeClient
 import ir.rhinocloud.easyotp.net.BridgeHealth
 import ir.rhinocloud.easyotp.net.Command
@@ -72,6 +73,9 @@ class ForwarderService : Service() {
      * a bridge that is not answering must not hold an SMS behind it.
      */
     private val side = Executors.newCachedThreadPool()
+
+    /** Sends one at a time; see [send]. */
+    private val sends = Executors.newSingleThreadExecutor()
 
     /** One per paired Receiver, by its id. Touched only on the main thread. */
     private val listeners = HashMap<String, CommandListener>()
@@ -152,6 +156,7 @@ class ForwarderService : Service() {
     override fun onDestroy() {
         listen(emptyList())
         side.shutdownNow()
+        sends.shutdownNow()
         // Not shutdownNow: giving up queued rows may still be waiting to run.
         worker.shutdown()
         super.onDestroy()
@@ -180,7 +185,9 @@ class ForwarderService : Service() {
                         // Marking sent on partial delivery would silently drop
                         // a second reader's copy.
                         val results = try {
-                            val receivers = settings.receiversFor(message.iccid)
+                            val readers = settings.receiversFor(message.iccid)
+                            // A refusal is for the one who asked; a send is for everyone of that SIM.
+                            val receivers = message.sent?.onlyFor?.let { only -> settings.receivers().filter { it.id == only } } ?: readers
                             if (receivers.isEmpty()) {
                                 // Whoever read this SIM was removed after the
                                 // message was captured. It has nowhere to go.
@@ -265,7 +272,7 @@ class ForwarderService : Service() {
         val id = Payload.wireId(
             settings.installSalt(),
             Outbox.dedupeKey(
-                CapturedMessage(message.iccid, message.sender, message.body, message.receivedAt, message.kind),
+                CapturedMessage(message.iccid, message.sender, message.body, message.receivedAt, message.kind, message.sent),
             ),
         )
         val isSms = message.kind == CapturedMessage.KIND_SMS
@@ -278,12 +285,16 @@ class ForwarderService : Service() {
             at = message.receivedAt,
             kind = message.kind.takeUnless { isSms },
             simKey = message.iccid,
+            ok = message.sent?.ok,
+            why = message.sent?.why,
+            by = message.sent?.by,
             name = nameOf(message.sender),
         ).encode()
 
         // One bit a bridge learns: this one is not urgent. It already sees
-        // when a message passes; what it said stays sealed.
-        val quiet = isSms && MessageClassifier.looksLikeAd(message.body)
+        // when a message passes; what it said stays sealed. Nobody needs
+        // waking to be told what they themselves just sent.
+        val quiet = message.sent != null || (isSms && MessageClassifier.looksLikeAd(message.body))
         return receivers.map { receiver ->
             client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload), quiet = quiet)
         }
@@ -314,15 +325,13 @@ class ForwarderService : Service() {
                 getSystemService(NotificationManager::class.java)?.cancel(RING_NOTIFICATION_ID)
             }
             Command.What.PING -> Unit
-            Command.What.SMS -> send(receiver.id, command, command.to, command.sim, command.text)
-            Command.What.DECLINE -> decline(receiver.id, command)
+            Command.What.SMS -> send(receiver, command, command.to, command.sim, command.text)
+            Command.What.DECLINE -> decline(receiver, command)
         }
         // The answer names the command, which is how the person who pressed
-        // the button knows this phone really did it. A send answers for
-        // itself, once the network has said whether it took the message.
-        if (command.what != Command.What.SMS && !(command.what == Command.What.DECLINE && command.text != null)) {
-            report(listOf(receiver), ack = command.id)
-        }
+        // the button knows this phone really did it. What came of a send
+        // arrives separately, as a record in the list.
+        report(listOf(receiver), ack = command.id)
     }
 
     /** Tells Receivers how this phone is doing (DECISIONS D26). */
@@ -341,7 +350,11 @@ class ForwarderService : Service() {
                         pending = outbox.pendingCount(),
                         ack = ack,
                     )
-                    val calls = runCatching { settings.calls }.getOrDefault(false)
+                    // Only what will work: ending a call needs Android 9 and both permissions.
+                    val calls = runCatching { settings.calls }.getOrDefault(false) &&
+                        Build.VERSION.SDK_INT >= 28 &&
+                        checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED &&
+                        checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
                     val maySend = checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
                     receivers.forEach { stale ->
                         // Read again: what a Receiver may do can have changed since its listener started.
@@ -363,14 +376,28 @@ class ForwarderService : Service() {
         }
     }
 
-    /** Ends the call that is ringing, and tells the caller why if the Receiver gave words for it. */
-    private fun decline(receiverId: String, command: Command) {
-        val ringing = CallReceiver.current ?: return
-        if (!runCatching { settings.calls }.getOrDefault(false)) return
-        val receiver = runCatching { settings.receivers().firstOrNull { it.id == receiverId } }.getOrNull() ?: return
-        // Only someone who is told of this SIM's calls can end one.
-        if (!receiver.reads(ringing.simKey)) return
-        ringing.handled = true
+    /**
+     * Ends the call that is ringing, and tells the caller why if the Receiver
+     * gave words for it. Only the very call the Receiver saw, and only while
+     * the request is fresh: a decline that took a detour through a bridge the
+     * phone was not listening at must not hang up on whoever rings next.
+     */
+    private fun decline(receiver: Receiver, command: Command) {
+        val ringing = CallReceiver.current
+        val refusal = when {
+            !runCatching { settings.calls }.getOrDefault(false) -> SendPolicy.NOT_ALLOWED
+            ringing == null || ringing.number != command.to -> SendPolicy.NO_CALL
+            kotlin.math.abs(System.currentTimeMillis() - command.at) > DECLINE_FRESH_MILLIS -> SendPolicy.NO_CALL
+            // Only someone who is told of this SIM's calls can end one.
+            !receiver.reads(ringing.simKey) -> SendPolicy.NOT_ALLOWED
+            else -> null
+        }
+        if (refusal != null || ringing == null) {
+            Log.i(TAG, "decline refused: $refusal")
+            // Whoever chose words for the caller is told they were not sent.
+            if (command.text != null) record(receiver, command, command.to.orEmpty(), command.sim, command.text, ok = false, why = refusal ?: SendPolicy.NO_CALL)
+            return
+        }
         val ended = runCatching {
             if (Build.VERSION.SDK_INT >= 28 && checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
                 @Suppress("DEPRECATION") // The replacement is for apps that are the phone's dialler.
@@ -379,51 +406,51 @@ class ForwarderService : Service() {
                 false
             }
         }.getOrDefault(false)
+        // A call that was not ended is still unanswered, and is reported as missed when it stops.
+        if (ended) ringing.handled = true
         Log.i(TAG, "decline ended=$ended")
-        if (command.text != null) send(receiverId, command, ringing.number, ringing.simKey, command.text)
+        if (command.text != null) send(receiver, command, ringing.number, ringing.simKey, command.text)
     }
 
     /**
-     * Sends an SMS because a Receiver asked, if [SendPolicy] agrees, and tells
-     * every Receiver of that SIM what was sent. A refusal is told only to the
-     * one who asked.
+     * Sends an SMS because a Receiver asked, if [SendPolicy] agrees, and
+     * records what came of it.
+     *
+     * On one thread, in order: the daily limit is a count, and two sends
+     * checked side by side would each see room for one more.
      */
-    private fun send(receiverId: String, command: Command, to: String?, simKey: String?, text: String?) {
+    private fun send(receiver: Receiver, command: Command, to: String?, simKey: String?, text: String?) {
         runCatching {
-            side.execute {
+            sends.execute {
                 try {
                     val now = System.currentTimeMillis()
-                    val receiver = settings.receiversStrict().firstOrNull { it.id == receiverId } ?: return@execute
+                    val current = settings.receiversStrict().firstOrNull { it.id == receiver.id } ?: return@execute
                     val ledger = SendLedger(this, settings.installSalt())
                     val sim = simKey?.let { key -> SimRegistry(this).activeSims().firstOrNull { it.iccid == key } }
                     val refusal = when {
-                        simKey == null || !receiver.reads(simKey) -> SendPolicy.NOT_ALLOWED
+                        simKey == null || !current.reads(simKey) -> SendPolicy.NOT_ALLOWED
                         checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED -> SendPolicy.NO_PERMISSION
                         sim == null -> SendPolicy.NO_SIM
                         else -> SendPolicy.refusal(
-                            allowed = receiver.canSend,
+                            allowed = current.canSend,
                             now = now,
                             commandAt = command.at,
                             to = to,
                             text = text,
                             lastHeardFrom = to?.let { ledger.lastHeardFrom(simKey, it) },
-                            sentAt = ledger.sentAt(receiver.id),
+                            sentAt = ledger.sentAt(current.id),
                         )
                     }
                     if (refusal != null || sim == null || to == null || text == null || simKey == null) {
                         Log.i(TAG, "send refused: $refusal")
-                        tellSent(listOf(receiver), receiver, command, to.orEmpty(), simKey, text.orEmpty(), ok = false, why = refusal ?: SendPolicy.EMPTY)
+                        record(current, command, to.orEmpty(), simKey, text.orEmpty(), ok = false, why = refusal ?: SendPolicy.EMPTY)
                         return@execute
                     }
-                    ledger.recordSent(receiver.id, now)
+                    // Counted before it goes, on this one thread, so the next check sees it.
+                    ledger.recordSent(current.id, now)
                     SmsSender.send(this, sim.subscriptionId, to, text) { ok ->
                         Log.i(TAG, "send ok=$ok")
-                        runCatching {
-                            side.execute {
-                                val readers = runCatching { settings.receiversFor(simKey) }.getOrDefault(listOf(receiver))
-                                tellSent(readers, receiver, command, to, simKey, text, ok, if (ok) null else SendPolicy.FAILED)
-                            }
-                        }
+                        record(current, command, to, simKey, text, ok, if (ok) null else SendPolicy.FAILED)
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "send: ${e.javaClass.simpleName}")
@@ -432,29 +459,20 @@ class ForwarderService : Service() {
         }
     }
 
-    /** The record of a send, or of a refusal: a message like any other, so it is listed where SMS are. */
-    private fun tellSent(to: List<Receiver>, by: Receiver, command: Command, number: String, simKey: String?, text: String, ok: Boolean, why: String?) {
-        val id = randomId()
-        val payload = Payload(
-            id = id,
-            sim = simKey?.let { SimRegistry(this).labelFor(it) }.orEmpty(),
-            from = number,
-            body = text,
-            code = null,
-            at = System.currentTimeMillis(),
-            kind = "sent",
-            simKey = simKey,
-            ok = ok,
-            why = why,
-            by = by.label,
-            name = nameOf(number),
-        ).encode()
-        // Quiet: nobody needs waking to be told what they themselves just sent.
-        to.forEach { receiver ->
-            client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload), quiet = true)
+    /**
+     * Queues the record of a send, or of a refusal, in the outbox, so it is
+     * delivered and retried like an SMS. A send goes to every Receiver of
+     * that SIM; a refusal only to the one who asked.
+     */
+    private fun record(by: Receiver, command: Command, number: String, simKey: String?, text: String, ok: Boolean, why: String?) {
+        try {
+            val sent = SentRecord(ok = ok, why = why, by = by.label, command = command.id, onlyFor = if (ok) null else by.id)
+            val key = simKey ?: by.sims?.firstOrNull() ?: SimRegistry(this).activeSims().firstOrNull()?.iccid.orEmpty()
+            outbox.enqueue(CapturedMessage(key, number, text, System.currentTimeMillis(), CapturedMessage.KIND_SENT, sent))
+            drain()
+        } catch (e: Exception) {
+            Log.e(TAG, "record: ${e.javaClass.simpleName}")
         }
-        // The answer that names the command is what clears "sending" on the screen that asked.
-        report(listOf(by), ack = command.id)
     }
 
     /**
@@ -578,6 +596,9 @@ class ForwarderService : Service() {
 
         /** Longer than one deposit can take; see BridgeClient's timeouts. */
         private const val AWAKE_MILLIS = 60_000L
+
+        /** A decline older than this is for a call that has stopped ringing. */
+        private const val DECLINE_FRESH_MILLIS = 60_000L
 
         /** The same length as an SMS's id; see Payload.wireId. */
         private const val WIRE_ID_BYTES = 24

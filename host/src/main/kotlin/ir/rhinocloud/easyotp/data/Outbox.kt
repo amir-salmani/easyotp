@@ -18,13 +18,36 @@ data class CapturedMessage(
      * missed. See [ir.rhinocloud.easyotp.net.Payload.kind]. A call has no body.
      */
     val kind: String = KIND_SMS,
+    /**
+     * For [KIND_SENT] only: what the Receivers are told about an SMS this
+     * phone sent, or refused to send, because one of them asked (DECISIONS D31).
+     */
+    val sent: SentRecord? = null,
 ) {
     companion object {
         const val KIND_SMS = "sms"
         const val KIND_CALL = "call"
         const val KIND_MISSED = "missed"
+        const val KIND_SENT = "sent"
     }
 }
+
+/**
+ * The outcome of a send a Receiver asked for. Queued in the outbox, so a
+ * bridge that is down when the network answers does not lose the record:
+ * D31 promises every Receiver of the SIM is told of every SMS sent.
+ */
+data class SentRecord(
+    val ok: Boolean,
+    /** A code from [ir.rhinocloud.easyotp.service.SendPolicy]'s closed list, or null on success. */
+    val why: String?,
+    /** The name of the Receiver that asked. */
+    val by: String,
+    /** The command it answers. Part of the record's identity: two equal replies are two records. */
+    val command: String,
+    /** Set for a refusal: told only to the Receiver that asked, by its id. */
+    val onlyFor: String?,
+)
 
 /** A row ready to be delivered. Sender and body are decrypted on read. */
 data class PendingMessage(
@@ -35,6 +58,7 @@ data class PendingMessage(
     val receivedAt: Long,
     val attempts: Int,
     val kind: String = CapturedMessage.KIND_SMS,
+    val sent: SentRecord? = null,
 )
 
 /**
@@ -93,6 +117,12 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
             .put("sender", message.sender)
             .put("body", message.body)
             .put("kind", message.kind)
+            .apply {
+                message.sent?.let { r ->
+                    put("ok", r.ok).put("why", r.why ?: JSONObject.NULL).put("by", r.by).put("command", r.command)
+                        .put("onlyFor", r.onlyFor ?: JSONObject.NULL)
+                }
+            }
             .toString()
             .toByteArray()
 
@@ -148,6 +178,15 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
                     attempts = cursor.getInt(4),
                     // Rows written before calls existed have no kind, and are SMS.
                     kind = payload.optString("kind").ifEmpty { CapturedMessage.KIND_SMS },
+                    sent = payload.takeIf { it.has("command") }?.let {
+                        SentRecord(
+                            ok = it.optBoolean("ok"),
+                            why = it.optString("why").takeIf { w -> w.isNotEmpty() && !it.isNull("why") },
+                            by = it.optString("by"),
+                            command = it.optString("command"),
+                            onlyFor = it.optString("onlyFor").takeIf { o -> o.isNotEmpty() && !it.isNull("onlyFor") },
+                        )
+                    },
                 )
             }
         }
@@ -262,7 +301,11 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         fun dedupeKey(m: CapturedMessage): String {
             // The kind is added only for what is not an SMS, so the id of every
             // SMS already queued or delivered stays what it was.
-            val kind = if (m.kind == CapturedMessage.KIND_SMS) "" else " ${m.kind}"
+            val kind = when {
+                m.kind == CapturedMessage.KIND_SMS -> ""
+                m.sent != null -> " ${m.kind} ${m.sent.command}"
+                else -> " ${m.kind}"
+            }
             val material = "${m.iccid} ${m.sender} ${m.body} ${m.receivedAt / DEDUPE_BUCKET_MS}$kind"
             return MessageDigest.getInstance("SHA-256")
                 .digest(material.toByteArray())

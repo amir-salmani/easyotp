@@ -27,7 +27,7 @@ function Reply(props: { m: StoredMessage; t: Strings; ask: Ask; presets?: readon
   const send = async (body: string) => {
     if (!body.trim() || state === "asking") return;
     setState("asking");
-    const ok = await (props.decline ? props.ask("decline", { text: body.trim() }) : props.ask("sms", { to: m.from, text: body.trim(), sim: m.simKey }));
+    const ok = await (props.decline ? props.ask("decline", { to: m.from, text: body.trim() }) : props.ask("sms", { to: m.from, text: body.trim(), sim: m.simKey }));
     setState(ok ? "asked" : "failed");
     if (ok) {
       setText("");
@@ -109,6 +109,8 @@ function MessageCard(props: {
   const { m, t, lang, can } = props;
   const [copied, setCopied] = useState(false);
   const [unsubscribed, setUnsubscribed] = useState<boolean | null>(null);
+  const [declined, setDeclined] = useState<boolean | null>(null);
+  const [declining, setDeclining] = useState(false);
   const copy = async () => {
     await navigator.clipboard.writeText(m.code!);
     setCopied(true);
@@ -172,11 +174,17 @@ function MessageCard(props: {
           {time}
         </div>
         {ringing && <p className="text-lg font-semibold">{t.callRinging}</p>}
-        {ringing && can.includes("calls") && (
+        {ringing && can.includes("calls") && declined !== true && (
           <>
             <button
-              onClick={() => void props.ask("decline", {})}
-              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-destructive bg-card px-4 font-semibold text-destructive"
+              disabled={declined === null && declining}
+              onClick={async () => {
+                setDeclining(true);
+                // The phone ends only this call, and only if it is still ringing.
+                setDeclined(await props.ask("decline", { to: m.from }));
+                setDeclining(false);
+              }}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-destructive bg-card px-4 font-semibold text-destructive disabled:opacity-40"
             >
               <PhoneOff aria-hidden size={20} strokeWidth={2} />
               {t.decline}
@@ -184,6 +192,7 @@ function MessageCard(props: {
             {can.includes("sms") && <Reply m={m} t={t} ask={props.ask} presets={t.declinePresets} decline />}
           </>
         )}
+        {declined !== null && <p className={declined ? "text-muted-foreground" : "font-medium text-destructive"}>{declined ? t.declineAsked : t.askFailed}</p>}
         {!ringing && canReply && <Reply m={m} t={t} ask={props.ask} />}
       </Card>
     );
