@@ -44,7 +44,7 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 
 ## 2. Not built
 
-- Waking the Receiver's Android app when it is closed (the web app is woken by a push from bridge 2, D30).
+- Nothing for waking a closed Receiver on Android: the web app is the Receiver everywhere (D33).
 - The Receiver's Android app taking new screens without a new APK, as the Host does (D32).
 - The dormant self-update of the Host's native core (D19).
 
@@ -65,7 +65,7 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 2. ~~Review of the second half, and its fixes.~~ Done.
 3. ~~Per-maker setup, deposit pace, signed list and screens (D32), dependency checksums.~~ Done.
 4. **Next: a night on the real phone, left alone.** Then the first release.
-5. Waking the Receiver's Android app.
+5. Decide, with the release, whether the Receiver's Android app is published at all (D33).
 
 ## 5. Open debts
 
