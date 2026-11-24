@@ -166,9 +166,10 @@ jobs:
 
       # --rerun, because one test writes the fixture the next step opens. A
       # test task restored from the build cache passes without running, and
-      # then there is no fixture.
+      # then there is no fixture. The option belongs to the task it follows,
+      # so it sits after the Host's tests, which are the ones that write.
       - name: Unit tests
-        run: ./gradlew :host:testDebugUnitTest :shell:testDebugUnitTest --rerun --stacktrace
+        run: ./gradlew :host:testDebugUnitTest --rerun :shell:testDebugUnitTest --stacktrace
 
       # The committed fixture only proves that whatever wrote it interoperates.
       # Sealing a fresh one here with the Host's code and opening it with the
