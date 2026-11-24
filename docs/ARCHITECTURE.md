@@ -83,6 +83,11 @@ one bridge at a time, and looks at the others on every alarm (D28). `buzz`
 rings as an alarm for twenty seconds and vibrates; either command is answered
 with a report that names it.
 
+**Answers and calls (D31).** If the owner allows it, a Receiver can have the
+phone send an SMS in answer to someone who wrote, and can be told of calls and
+end one. `SendPolicy` decides each send; `CallReceiver` watches the phone ring.
+What was sent, and each call, reach Receivers as messages of their own kind.
+
 **The message id.** A bridge sees one cleartext field besides the box: the id,
 which the Receiver uses to show a message once. It is
 `SHA-256(install salt ‖ outbox key)`, truncated. The salt never leaves the phone,
@@ -222,6 +227,10 @@ the extra settings screen each manufacturer hides its own app-killer behind.
 `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `ACCESS_NETWORK_STATE` (for the status
 report), `VIBRATE` and `WAKE_LOCK` (to ring, and to finish a send before the
 phone sleeps again).
+
+Three more exist for the optional powers and are asked for only when the
+owner switches one on (D31): `SEND_SMS`, `READ_CALL_LOG` and
+`ANSWER_PHONE_CALLS`.
 
 They are asked for one at a time, each after a sentence saying what it is for.
 On Android 15 and later an app installed from outside the store is refused

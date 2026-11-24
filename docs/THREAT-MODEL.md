@@ -46,6 +46,12 @@ are sealed with a Keystore key, and nothing is included in backups.
 can. Its private key cannot be taken back; the remedy is to remove that Receiver
 at the Host and pair again.
 
+With sending switched on for that Receiver (D31), they can also write as the
+SIM's owner: only to a number that contacted the SIM in the last thirty days,
+at most twenty times a day, and every one is shown to the other Receivers.
+With calls switched on, they see who rings and can end a ringing call. Both
+are off by default and switched off again on the Host.
+
 **A5. Someone who learns a Receiver's public key and box id.** Can seal a
 message that opens on that Receiver and deposit it: a false message, such as a
 fake code prompt. Cannot read anything. HPKE base mode is public-key encryption

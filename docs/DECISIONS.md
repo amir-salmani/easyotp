@@ -865,3 +865,71 @@ whose owner turned notifications on.
 Host's `quiet` mark. **Unverified:** delivery to a real iPhone. **Not built:**
 the same for the Receiver's Android app, where a web view has no push; and a
 Receiver that stops holding its request open once push is known to work.
+
+---
+
+## D31 — A Receiver may answer an SMS and decline a call, if the phone's owner says so (2026-11-24)
+
+**Chosen:** two powers beyond reading, both off until switched on at the Host.
+
+| Power | Switched on | What a Receiver can then do |
+|---|---|---|
+| Sending | per Receiver | answer an SMS from the SIM it came to; send an advertiser its own opt-out code |
+| Calls | for the phone | be told the phone is ringing and from whom, and that a call was missed; end a ringing call, with or without a line to the caller |
+
+A send is refused unless every one of these holds (`SendPolicy.kt`):
+
+- the owner switched sending on for that Receiver, and it reads that SIM;
+- the number wrote to or called that SIM in the last thirty days;
+- that Receiver has sent fewer than twenty in the last twenty-four hours;
+- the text is at most 200 characters;
+- the command is no more than ten minutes old by the phone's clock.
+
+Every SMS sent is told to every Receiver of that SIM, with who asked. A
+refusal is told to the one who asked, with a reason from a closed list.
+
+**Rejected:** sending to any number; no daily limit; sending switched on by a
+Receiver; answering calls or carrying their audio; reading the SMS inbox or
+the call log to decide who is known.
+
+**Why:** the person abroad is the one who needs to answer "is this you? reply
+1", or to tell a caller they will ring back. Reading alone leaves them asking
+whoever is near the phone to type for them.
+
+**Sending is a different power from reading.** A lost Receiver that can read
+sees codes. One that can send could answer a bank, subscribe to a paid
+service, or write to anyone as the SIM's owner. So it is narrowed to what the
+need is, an answer: only to a number that contacted the SIM first, a few a
+day, never from a stale command, and visible to everyone afterwards. The
+switch is on the Host because the Host is the device a thief of the Receiver
+does not hold.
+
+**Who is "known" is kept as a salted hash and a time.** The policy only ever
+asks whether this exact number has been heard from, so the number has no
+reason to be stored a second time.
+
+**Calls.** The Host learns that the phone rings and the number, as its own
+screen shows. It never answers and hears nothing. The SIM a call came in on is
+not always told by Android; with two SIMs and no answer the call is left out
+rather than listed under the wrong line.
+
+**Three new permissions,** asked for only when their switch is turned on and
+never at setup: `SEND_SMS`, `READ_CALL_LOG` (Android gives the ringing number
+only to an app that holds it; the log itself is never read) and
+`ANSWER_PHONE_CALLS` (to end a call; the app never answers one).
+
+**On the wire.** A call and a sent SMS travel as messages with a `kind`, so
+they are stored, shown once and acknowledged like any SMS, and a Receiver from
+before this shows them as plain messages. A reply and a decline are commands
+(D26) with a destination and a text. Each report tells a Receiver what it may
+ask for, so it shows only the buttons that will work.
+
+**Costs:** more to go wrong on a phone nobody watches, and a wider permission
+list for anyone reading the manifest. A Receiver left unlocked can now write
+up to twenty answers a day as the SIM's owner (THREAT-MODEL A4).
+
+**Built and run on an emulator:** a reply sent, a stranger refused, a call
+declined with a message, a missed call reported. **Unverified on hardware:**
+which SIM a call is attributed to on a dual-SIM phone, ending a call on each
+manufacturer's Android, and whether a sideloaded install is allowed these
+permissions without the "restricted settings" step.

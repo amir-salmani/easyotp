@@ -30,6 +30,7 @@ from deep sleep.
 | Host: pairing | The Host's side in Kotlin: commit, open the sealed offer, reveal, hand over a command channel | Unit tests; a written-down pairing both sides recompute; the emulator check |
 | Host: reports and commands | A status report about every fifteen minutes and on request; rings and vibrates when asked; answers naming the command | The emulator check. The fifteen-minute alarm itself was not waited for |
 | Host: screens | Setup one permission at a time, home, pairing with code and picture, which SIMs a Receiver reads, disconnect, test message, the phone's name. Persian and English | The emulator check drives them; seen in a browser against a stand-in |
+| Answers and calls | A Receiver answers an SMS, sends an advertiser its opt-out code, sees calls and declines one with a line to the caller; the Host decides each send by fixed rules | Unit tests of the rules; the emulator check; the browser test |
 | Receiver web app | Install gate, pairing, several Hosts each with its own keys, a monitor per Host, messages shown once, copy, a Spam list with advertising set aside, side panel, Persian and English | `npm run e2e`. Used on an iPhone on 2026-11-23 |
 | Receiver Android app | The same screens in an APK, with Android notifications | Paired with the Host app on one emulator and showed its SMS. Notifications were not looked at |
 | Bridge | Deposit, collect with hold, acknowledge, expiry, limits, key-only access, pairing slots | Tests on the Workers runtime and on Node |
