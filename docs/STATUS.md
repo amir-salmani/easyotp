@@ -44,11 +44,9 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 
 ## 2. Not built
 
-- Waking the Receiver's Android app when it is closed. The web app is woken by a push from bridge 2 (D30), built on 2026-11-24 and not yet seen arriving on a real iPhone.
-- The signed screen bundle and config loader, and the signed bridge list (D17, D19). The Host's screens ship inside the APK.
-- Per-brand guidance for the settings each manufacturer hides its app-killer behind (ARCHITECTURE 7).
-- The dormant self-update (D19).
-- Checking a SIM's balance by USSD.
+- Waking the Receiver's Android app when it is closed (the web app is woken by a push from bridge 2, D30).
+- The Receiver's Android app taking new screens without a new APK, as the Host does (D32).
+- The dormant self-update of the Host's native core (D19).
 
 ## 3. Deployed
 
@@ -58,27 +56,25 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 | Bridge 2 | Live. Deployed by hand: `wrangler deploy` from `bridge/` |
 | Receiver web app | Live at `pwa.easyotp.rhinocloud.ir`. Deployed by hand: `npm run deploy` from `receiver/` |
 | Download links | `dl.amirsalmani.com/s/…` is live and returns 404 until the first release |
-| A release | None. No tag has been cut. Every push builds signed APKs as workflow artifacts |
+| A release | None. The tag `gen1` marks the first working generation and publishes nothing. Every push builds signed APKs as workflow artifacts |
+| Signed files | Bridge 2 serves the signed bridge list and Host screens (D32). Bridge 1 serves them once `main` builds |
 
 ## 4. Build order
 
-1. ~~Actions builds and signs the Host APK.~~ Done.
-2. ~~One repository; the new bridge protocol.~~ Done.
-3. ~~Bridges deployed; Receiver web app; Host pairing and screens; Receiver APK.~~ Done. **Next: a real SMS on a real phone**, then the first release.
-4. Signed bundle and config, proven by changing a screen without a new APK.
-5. Per-brand setup guidance.
-6. Waking a closed Receiver.
+1. ~~Android apps, pairing, reports, ring, push, spam, answers and calls, contact names.~~ Done; tagged `gen1`.
+2. ~~Review of the second half, and its fixes.~~ Done.
+3. ~~Per-maker setup, deposit pace, signed list and screens (D32), dependency checksums.~~ Done.
+4. **Next: a night on the real phone, left alone.** Then the first release.
+5. Waking the Receiver's Android app.
 
 ## 5. Open debts
 
 | Debt | Why it matters | When |
 |---|---|---|
-| Gradle dependency verification (D11) | A release resolves dependencies on reputation alone | Before the first release |
 | False messages (THREAT-MODEL A5) | Whoever learns a Receiver's public key and box id can deposit a forged message. Pairing keeps both from a bridge | Open |
 | Collect cost on bridge 2 | Held requests are billed by duration on Workers | Before real use; see BRIDGES |
 | The service worker is not exercised by any test | The browser test runs a development build, which registers none. Opening offline was checked by reading only | With the first production browser test |
 | A stalled connection to a bridge | Seen once, from one laptop, to bridge 2 only (BRIDGES). The Receiver now gives up on a collect after 75 s and tries again, so a stall costs a delay and not the session. Whether a phone ever sees it is unknown | Watch for it |
-| No rate limit on deposit | A known box id can be flooded until its oldest messages fall out | With bridge 2's deploy |
 | SIM identity on Android 10+ | An ordinary app gets an empty ICCID there, so the route is keyed by subscription id. That it stays with its SIM across reboots and re-insertion is assumed, not seen | Step 3, on a dual-SIM phone |
 | The outbox, the drain loop and the settings store have no test of their own | They need Android's SQLite and Keystore. The emulator check runs them on the happy path; retry timing, dead rows and the unreadable-settings guard are checked by reading only | When it bites |
 | The emulator check is not in CI | It needs an emulator and reaches the live bridges. It is run by hand before a release | Before the second release |

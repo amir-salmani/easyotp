@@ -208,9 +208,10 @@ The screens hold no key and make no request. The shell refuses any request
 they make that is not for a bundled file, and sends a content security policy
 that says the same (`WebShell.kt`).
 
-Today the build ships inside the APK. Fetching a signed build through the
-bridges, so screens change without a new APK, is D19 and is not built. The
-split it needs is in place.
+A build also ships inside the APK. A newer one arrives signed through the
+bridges and is shown from the next time the window opens, after its
+signature checks (D32, `dist/` in the Host). The bridge list arrives the same
+way. Screens that fail to draw are dropped and the APK's own return.
 
 ## 7. Surviving the phone's manufacturer
 
