@@ -19,12 +19,14 @@ export function mockNative(): Native {
     version: "dev",
     label: "Galaxy A14",
     consent: ready,
-    perms: { sms: ready, phone: ready, notify: ready, battery: ready },
+    calls: false,
+    perms: { sms: ready, phone: ready, notify: ready, battery: ready, send: false, calls: false },
     sims: [
       { key: "sub:1", name: "IR-MCI · SIM 1" },
       { key: "sub:2", name: "Irancell · SIM 2" },
     ],
-    receivers: [],
+    // ?paired starts with someone connected, for working on what a connected Receiver may do.
+    receivers: query.has("paired") ? [{ id: "r1", label: "iPhone امیر", pairedAt: Date.now() - 86_400_000, sims: null, canSend: false }] : [],
     pending: 0,
     test: null,
     // ?ring plays a phone that is ringing.
@@ -79,7 +81,7 @@ export function mockNative(): Native {
       let id = "";
       if (same && pair?.stage === "picture") {
         id = `r${Date.now()}`;
-        state.receivers.push({ id, label: pair.peer ?? "", pairedAt: Date.now(), sims: null });
+        state.receivers.push({ id, label: pair.peer ?? "", pairedAt: Date.now(), sims: null, canSend: false });
       }
       changed();
       return id;
@@ -92,6 +94,15 @@ export function mockNative(): Native {
     setReceiverSims(id, sims) {
       const receiver = state.receivers.find((r) => r.id === id);
       if (receiver) receiver.sims = JSON.parse(sims) as string[] | null;
+      changed();
+    },
+    setReceiverCanSend(id, allowed) {
+      const receiver = state.receivers.find((r) => r.id === id);
+      if (receiver) receiver.canSend = allowed;
+      changed();
+    },
+    setCalls(on) {
+      state.calls = on;
       changed();
     },
     removeReceiver(id) {

@@ -8,7 +8,8 @@
  * when the phone says something changed.
  */
 
-export type Permission = "sms" | "phone" | "notify" | "battery";
+/** `send` and `calls` are the two optional powers (DECISIONS D31), asked for only when switched on. */
+export type Permission = "sms" | "phone" | "notify" | "battery" | "send" | "calls";
 
 export interface HostState {
   version: string;
@@ -16,9 +17,11 @@ export interface HostState {
   label: string;
   /** The owner has confirmed they may forward this phone's messages. */
   consent: boolean;
+  /** Receivers are told of calls and may decline them. */
+  calls: boolean;
   perms: Record<Permission, boolean>;
   sims: Array<{ key: string; name: string }>;
-  receivers: Array<{ id: string; label: string; pairedAt: number; sims: string[] | null }>;
+  receivers: Array<{ id: string; label: string; pairedAt: number; sims: string[] | null; canSend: boolean }>;
   /** SMS captured and not yet handed to a bridge. */
   pending: number;
   test: { ok: boolean; at: number } | null;
@@ -46,6 +49,9 @@ export interface Native {
   pairCancel(): void;
   /** `sims` is a JSON array of SIM keys, or the text `null` for every SIM. */
   setReceiverSims(id: string, sims: string): void;
+  /** Whether this Receiver may make the phone send an SMS. */
+  setReceiverCanSend(id: string, allowed: boolean): void;
+  setCalls(on: boolean): void;
   removeReceiver(id: string): void;
   sendTest(): void;
   stopRing(): void;

@@ -323,6 +323,20 @@ function Home(props: {
                       ))}
                     </fieldset>
                   )}
+                  <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
+                    <input
+                      type="checkbox"
+                      className="size-6 shrink-0"
+                      checked={r.canSend}
+                      onChange={(e) => {
+                        native.setReceiverCanSend(r.id, e.target.checked);
+                        if (e.target.checked && !state.perms.send) native.ask("send");
+                      }}
+                    />
+                    {t.canSend}
+                  </label>
+                  <p className="text-muted-foreground">{t.canSendHint}</p>
+                  {r.canSend && !state.perms.send && <Granting t={t} native={native} what="send" />}
                   {removing === r.id ? (
                     <>
                       <p className="font-medium">{t.removeAsk(r.label)}</p>
@@ -366,6 +380,26 @@ function Home(props: {
         </section>
       )}
 
+      {count > 0 && (
+        <Card className="flex flex-col gap-3">
+          <h2 className="font-semibold">{t.callsTitle}</h2>
+          <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
+            <input
+              type="checkbox"
+              className="size-6 shrink-0"
+              checked={state.calls}
+              onChange={(e) => {
+                native.setCalls(e.target.checked);
+                if (e.target.checked && !state.perms.calls) native.ask("calls");
+              }}
+            />
+            {t.callsOn}
+          </label>
+          <p className="text-muted-foreground">{t.callsHint}</p>
+          {state.calls && !state.perms.calls && <Granting t={t} native={native} what="calls" />}
+        </Card>
+      )}
+
       <Card className="flex flex-col gap-3">
         <label htmlFor="phone-name" className="font-semibold">
           {t.phoneName}
@@ -391,6 +425,27 @@ function Home(props: {
         {t.version(state.version)}
       </p>
     </Screen>
+  );
+}
+
+/**
+ * A switch that is on while Android has not agreed. Said in words, with both
+ * ways forward: ask again, or the settings screen for a permission Android
+ * holds back from an app installed outside the store.
+ */
+function Granting({ t, native, what }: { t: HostStrings; native: Native; what: Permission }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="font-medium text-destructive">{t.needsAndroid}</p>
+      <div className="grid grid-cols-2 gap-3">
+        <Button variant="secondary" onClick={() => native.ask(what)}>
+          {t.allow}
+        </Button>
+        <Button variant="secondary" onClick={() => native.ask("settings")}>
+          {t.openSettings}
+        </Button>
+      </div>
+    </div>
   );
 }
 
