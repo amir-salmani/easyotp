@@ -28,7 +28,14 @@ import { steadyFetch } from "./steady-fetch";
 
 const APP = "ir.rhinocloud.easyotp.host";
 const ADB = process.env.ANDROID_HOME ? `${process.env.ANDROID_HOME}/platform-tools/adb` : "adb";
-const adb = (...args: string[]) => execFileSync(ADB, args, { encoding: "utf8" });
+/**
+ * This check erases the app's data, so it only ever runs against an emulator.
+ * A real phone plugged into the same machine, with a real pairing on it, is
+ * never touched: every adb command names the emulator.
+ */
+const SERIAL = execFileSync(ADB, ["devices"], { encoding: "utf8" }).split("\n").map((line) => line.split("\t")).find(([serial, state]) => serial?.startsWith("emulator-") && state === "device")?.[0];
+if (!SERIAL) throw new Error("no running emulator found; this check does not run on a real phone");
+const adb = (...args: string[]) => execFileSync(ADB, ["-s", SERIAL, ...args], { encoding: "utf8" });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const step = (text: string) => console.log(`ok   ${text}`);
 
@@ -57,8 +64,8 @@ adb("shell", "pm", "clear", APP);
 adb("shell", "am", "start", "-n", `${APP}/ir.rhinocloud.easyotp.ui.MainActivity`);
 // Playwright's Android driver finds the app's WebView through adb and
 // attaches to it as it would to a browser tab.
-const [device] = await android.devices();
-if (!device) throw new Error("no emulator or phone is connected to adb");
+const device = (await android.devices()).find((d) => d.serial() === SERIAL);
+if (!device) throw new Error(`the emulator ${SERIAL} is not reachable`);
 const view = await device.webView({ pkg: APP }, { timeout: 30_000 });
 const page = await view.page();
 page.on("pageerror", (e) => console.log(`PAGE ERROR ${e.message}`));
@@ -76,7 +83,8 @@ try {
   await page.evaluate(() => window.dispatchEvent(new Event("easyotp:change")));
   await page.getByRole("button", { name: "اتصال یک گیرنده" }).waitFor();
   const before = await state(page);
-  if (Object.values(before.perms).some((granted) => !granted)) throw new Error(`permissions: ${JSON.stringify(before.perms)}`);
+  // The two optional powers are still off here, as on a fresh install.
+  if (["sms", "phone", "notify", "battery"].some((p) => !before.perms[p])) throw new Error(`permissions: ${JSON.stringify(before.perms)}`);
   step(`set up; the phone sees ${before.sims.length} SIM: ${before.sims.map((s) => s.name).join(", ")}`);
 
   // Pair. The code comes off the phone's screen, as it would be read out.
@@ -140,6 +148,40 @@ try {
   await until("the test message", async () => (await collect(), [...seen.values()].find((m) => m.from === "EasyOTP")), 90_000);
   if (!(await until("the phone to report the test", async () => (await state(page)).test))?.ok) throw new Error("the phone says the test failed");
   step("the test message arrived");
+
+  // The two optional powers, switched on at the phone as its owner would.
+  await page.getByLabel("بتواند از این گوشی پیامک بفرستد").check();
+  await page.getByLabel("گیرنده‌ها از تماس‌ها باخبر شوند و بتوانند آن را رد کنند").check();
+  for (const permission of ["SEND_SMS", "READ_CALL_LOG", "ANSWER_PHONE_CALLS"]) adb("shell", "pm", "grant", APP, `android.permission.${permission}`);
+  await page.evaluate(() => window.dispatchEvent(new Event("easyotp:change")));
+  await sendCommand(SEED_BRIDGES, mine.host, "ping", steadyFetch);
+  await until("the phone to say what this Receiver may ask", async () => (await collect(), ["sms", "calls"].every((c) => (status as Status | null)?.can?.includes(c))), 90_000);
+  const record = (text: string) => [...seen.values()].find((m) => m.kind === "sent" && m.body === text);
+
+  // An answer to whoever wrote is sent, and listed.
+  await sendCommand(SEED_BRIDGES, mine.host, "sms", steadyFetch, { to: sms.from, text: "باشه، ممنون", sim: sms.simKey });
+  const answered = await until("the reply to be sent", async () => (await collect(), record("باشه، ممنون")), 120_000);
+  if (!answered.ok || answered.from !== sms.from) throw new Error(`reply: ok=${answered.ok} why=${answered.why}`);
+  // A number that never wrote to this SIM is refused, and the reason comes back.
+  await sendCommand(SEED_BRIDGES, mine.host, "sms", steadyFetch, { to: "+989990001122", text: "سلام غریبه", sim: sms.simKey });
+  const refused = await until("the refusal", async () => (await collect(), record("سلام غریبه")), 120_000);
+  if (refused.ok || refused.why !== "stranger") throw new Error(`a stranger was written to: ok=${refused.ok} why=${refused.why}`);
+  step(`replied to ${sms.from}; a message to a stranger was refused (${refused.why})`);
+
+  // The phone rings. This Receiver is told, declines, and has the caller told why.
+  adb("emu", "gsm", "call", "09121234567");
+  const ringing = await until("the call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "call")), 120_000);
+  await sendCommand(SEED_BRIDGES, mine.host, "decline", steadyFetch, { text: "بعداً تماس می‌گیرم." });
+  const told = await until("the caller to be told", async () => (await collect(), record("بعداً تماس می‌گیرم.")), 120_000);
+  if (!told.ok || told.from !== ringing.from) throw new Error(`decline: ok=${told.ok} why=${told.why} to=${told.from}`);
+  await until("the call to be ended by the phone", async () => !/inbound/.test(adb("emu", "gsm", "list")), 30_000);
+  // A call nobody deals with is reported as missed.
+  await sleep(3000);
+  adb("emu", "gsm", "call", "09127654321");
+  await until("the second call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "call" && m.from !== ringing.from)), 120_000);
+  adb("emu", "gsm", "cancel", "09127654321");
+  const missed = await until("the missed call", async () => (await collect(), [...seen.values()].find((m) => m.kind === "missed")), 120_000);
+  step(`a call from ${ringing.from} was declined with a message; one from ${missed.from} was reported missed`);
 
   // Ring.
   adb("logcat", "-c");

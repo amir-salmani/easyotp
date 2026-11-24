@@ -5,7 +5,7 @@
  * so they exercise one implementation of the Host's side.
  */
 import { boxIdFrom, randomKey } from "../src/ids";
-import { newKeyPair, openAny, seal, type Message, type Status } from "../src/open";
+import { newKeyPair, openAny, seal, type Command, type Message, type Status } from "../src/open";
 import { pairAsHost, type Fetch, type ReceiverOffer } from "../src/pairing";
 import type { Picture } from "../src/pictures";
 
@@ -15,6 +15,8 @@ export interface SimHost {
   receiver: ReceiverOffer;
   /** Seals a line as an SMS and leaves it at every bridge. Resolves with each bridge's answer. */
   sendSms(body: string, code: string | null, sim?: string, from?: string): Promise<string[]>;
+  /** The phone rings, or a call went unanswered. `at` ties a missed call to its ringing. */
+  sendCall(kind: "call" | "missed", from: string, at?: number): Promise<string[]>;
   /** Reports on itself now. */
   sendStatus(over?: Partial<Status>): Promise<void>;
   /** Starts reporting every `every` seconds and obeying commands. */
@@ -32,7 +34,9 @@ export async function simHost(opts: {
   every?: number;
   /** What this Host says about itself. Changed by a test to play a dying battery. */
   state?: Pick<Status, "battery" | "charging" | "net" | "pending">;
-  onCommand?: (cmd: "buzz" | "ping" | "hush") => void;
+  onCommand?: (cmd: Command["cmd"], command: Command) => void;
+  /** What this Host lets its Receiver ask for; see `Status.can`. */
+  can?: string[];
 }): Promise<SimHost> {
   const f: Fetch = opts.fetch ?? ((input, init) => fetch(input, init));
   const every = opts.every ?? 30;
@@ -62,7 +66,7 @@ export async function simHost(opts: {
   };
 
   const sendStatus = async (over: Partial<Status> = {}) => {
-    await deposit({ v: 2, k: "status", id: randomKey(24), at: Date.now(), every, ...state, ...over }, "status");
+    await deposit({ v: 2, k: "status", id: randomKey(24), at: Date.now(), every, ...state, ...(opts.can ? { can: opts.can } : {}), ...over }, "status");
   };
 
   let stopped = true;
@@ -83,7 +87,15 @@ export async function simHost(opts: {
           const payload = await openAny(keys.privateKey, m.id, m.enc, m.ct).catch(() => null);
           if (!payload || !("k" in payload) || payload.k !== "cmd" || done.has(payload.id)) continue;
           done.add(payload.id);
-          opts.onCommand?.(payload.cmd);
+          opts.onCommand?.(payload.cmd, payload);
+          // As the phone does: an SMS it sent is listed for every Receiver, then the command is answered.
+          const sending = payload.cmd === "sms" || (payload.cmd === "decline" && payload.text);
+          if (sending) {
+            await deposit({
+              v: 2, id: randomKey(24), sim: `${opts.label} SIM`, simKey: payload.sim ?? "sub:1", from: payload.to ?? "+989120000000",
+              body: payload.text ?? "", code: null, at: Date.now(), kind: "sent", ok: true, by: paired.peerLabel,
+            });
+          }
           await sendStatus({ ack: payload.id });
         }
         if (messages.length) await f(`${url}/ack`, { method: "POST", headers, body: JSON.stringify({ ids: messages.map((m) => m.id) }) });
@@ -99,7 +111,9 @@ export async function simHost(opts: {
     peerLabel: paired.peerLabel,
     receiver: paired.receiver,
     sendSms: (body, code, sim = `${opts.label} SIM`, from = "+98200") =>
-      deposit({ v: 2, id: randomKey(24), sim, from, body, code, at: Date.now() }),
+      deposit({ v: 2, id: randomKey(24), sim, simKey: "sub:1", from, body, code, at: Date.now() }),
+    sendCall: (kind, from, at = Date.now()) =>
+      deposit({ v: 2, id: randomKey(24), sim: `${opts.label} SIM`, simKey: "sub:1", from, body: "", code: null, at, kind }),
     sendStatus,
     start() {
       if (!stopped) return;
