@@ -99,11 +99,14 @@ class HostPairing(
                 val channel = ReceiverSealer.fromBase64Url(body.publicKey).seal(
                     PairCodec.utf8(JSONObject().put("pk", commandPublicKey).put("box", commandBoxId).toString()),
                 )
+                // To every bridge, not just the first: the Receiver may be able
+                // to reach only one of them, and this is the last message.
                 send(
                     PairCodec.reveal(
                         nonce, label, PairCodec.offerId(enc, ct),
                         PairCodec.b64(channel.enc), PairCodec.b64(channel.ciphertext),
                     ),
+                    settle = true,
                 )
                 return PairedReceiver(
                     label = body.label,
@@ -124,17 +127,27 @@ class HostPairing(
         }
     }
 
-    /** Posts to every bridge and returns as soon as one has taken it. */
-    private fun send(message: JSONObject) {
+    /**
+     * Posts to every bridge and returns as soon as one has taken it.
+     *
+     * @param settle wait a little longer for the others as well, because
+     *   whatever is still in flight is cut when the pairing ends.
+     */
+    private fun send(message: JSONObject, settle: Boolean = false) {
         if (cancelled.get()) throw PairingFailed(PairingFailed.CANCELLED)
         val body = JSONObject().put("v", 2).put("from", "host").put("data", PairCodec.encode(message)).toString()
         val done = ExecutorCompletionService<Boolean>(pool)
         bridges.forEach { bridge -> done.submit { transport.post(bridge, slotId, body) } }
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(POST_TIMEOUT_SECONDS)
-        repeat(bridges.size) {
-            val finished = done.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS) ?: return@repeat
-            if (runCatching { finished.get() }.getOrDefault(false)) return
+        var deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(POST_TIMEOUT_SECONDS)
+        var taken = false
+        for (i in bridges.indices) {
+            val finished = done.poll(deadline - System.nanoTime(), TimeUnit.NANOSECONDS) ?: break
+            if (!runCatching { finished.get() }.getOrDefault(false)) continue
+            if (!settle) return
+            if (!taken) deadline = minOf(deadline, System.nanoTime() + TimeUnit.SECONDS.toNanos(SETTLE_SECONDS))
+            taken = true
         }
+        if (taken) return
         throw PairingFailed(if (cancelled.get()) PairingFailed.CANCELLED else PairingFailed.UNREACHABLE)
     }
 
@@ -175,6 +188,9 @@ class HostPairing(
 
     companion object {
         private const val POST_TIMEOUT_SECONDS = 15L
+
+        /** How long the last message waits for the slower bridges once one has it. */
+        private const val SETTLE_SECONDS = 5L
         private const val RETRY_MILLIS = 1500L
         private const val MIN_POLL_MILLIS = 1000L
 

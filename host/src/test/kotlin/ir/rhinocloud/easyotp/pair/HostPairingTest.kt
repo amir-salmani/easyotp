@@ -27,7 +27,7 @@ class HostPairingTest {
         fun post(from: String, data: String) = messages.add(SlotMessage(messages.size + 1L, from, data))
     }
 
-    private class Memory(private val down: Set<String> = emptySet()) : SlotTransport {
+    private class Memory(private val down: Set<String> = emptySet(), private val slow: Set<String> = emptySet()) : SlotTransport {
         val slots = HashMap<String, Slot>()
 
         @Synchronized
@@ -35,6 +35,7 @@ class HostPairingTest {
 
         override fun post(bridge: String, slotId: String, body: String): Boolean {
             if (bridge in down) return false
+            if (bridge in slow) Thread.sleep(400)
             val json = JSONObject(body)
             slot(bridge).post(json.getString("from"), json.getString("data"))
             return true
@@ -141,6 +142,20 @@ class HostPairingTest {
         val commit = waitFor(slot, "commit")
         slot.post("receiver", FakeReceiver("iPad").offerTo(commit.getString("e")).first)
         assertEquals("iPad", result.get(10, TimeUnit.SECONDS).label)
+    }
+
+    @Test
+    fun `the reveal reaches the slower bridge too`() {
+        // The Receiver may reach only one bridge. If the pairing ended the
+        // moment the faster one took the reveal, the Host would show a
+        // picture and that Receiver would wait for ever.
+        val memory = Memory(slow = setOf("one"))
+        val pairing = HostPairing(bridges, memory, "12345678", "خانه", commands.publicKey, commandBox)
+        val result = Executors.newSingleThreadExecutor().submit<PairedReceiver> { pairing.run() }
+        val commit = waitFor(memory.slot("two"), "commit")
+        memory.slot("two").post("receiver", FakeReceiver("iPad").offerTo(commit.getString("e")).first)
+        result.get(10, TimeUnit.SECONDS)
+        assertTrue(memory.slot("one").messages.any { it.from == "host" && decode(it.data).getString("t") == "reveal" })
     }
 
     @Test
