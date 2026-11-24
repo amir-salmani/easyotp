@@ -713,8 +713,93 @@ never the key, so it cannot make a phone ring.
 Host's own intervals. The interval travels in the report, so the Receiver does
 not need to know it in advance.
 
-**Built:** the Receiver's side, the bridge's tag, and a Host simulator in
-TypeScript used by the tests and the stand-in. **Not built:** the Host app's
-side in Kotlin, where a command also has to reach a phone that Android is
-trying to put to sleep.
+**Built:** both sides, the bridge's tag, and a Host simulator in TypeScript
+used by the tests and the stand-in. How the Host app waits for a command
+without paying for it is D28. **Unverified:** that a command reaches a real
+phone that has been asleep for hours; an emulator does not sleep like one.
 
+
+---
+
+## D27 — A Receiver reads every SIM unless narrowed, and consent is given once (2026-11-24)
+
+**Chosen:** a paired Receiver gets the messages of every SIM in the phone,
+including one put in later. The owner can limit a Receiver to particular SIMs
+from the Host's home screen. Consent is one acknowledgement at setup, before
+which nothing is captured at all.
+
+**Rejected:** a route per SIM with its own consent and its own list of
+Receivers, which is what the first code had; choosing SIMs as a step of
+pairing.
+
+**Why:** the person setting this up is often an older relative following
+instructions over a phone call. Most phones in question hold one SIM, and a
+pairing that ends with a question about routing keys is one more place to get
+stuck. The household with two SIMs and two readers is real, so the choice
+exists, one tap away, after the pairing has already worked.
+
+**Nothing is kept that has nowhere to go.** Before the acknowledgement, and
+for a SIM no Receiver reads, the capture path stores nothing. If the settings
+cannot be read it stores the message anyway: "nobody is paired" would then be
+a guess, and a wrong guess loses someone's code.
+
+**Costs:** a second Receiver sees a spouse's bank codes unless someone narrows
+it. The picture step names who is being connected, and the home screen shows
+what each one reads.
+
+---
+
+## D28 — The Host waits for commands at one bridge, and reports from an alarm (2026-11-24)
+
+**Chosen:** for each paired Receiver the Host holds one waiting request, at the
+first bridge that answers, and moves to the next only when that one fails. On
+every status alarm it also looks once at each of the others. Reports are driven
+by an inexact alarm about every twelve minutes and state an interval of
+fifteen.
+
+**Rejected:** waiting at every bridge at once, as a Receiver does; polling on a
+timer inside the service; a push service.
+
+**Why:** a Receiver is open for minutes. A Host waits all day, every day, and a
+held request is what a bridge on Workers is billed for by the second
+(BRIDGES). Waiting at all of them delivers nothing sooner when the first is up.
+A Receiver leaves a command at every bridge, so one that only reached another
+bridge is still found, at the next alarm.
+
+A timer in the service does not run while the phone is in deep sleep; an alarm
+does, about once every nine minutes at most. Stating fifteen and firing at
+twelve leaves room for a late alarm before a Receiver calls the phone silent
+at two and a half intervals.
+
+A push service would wake the phone properly, and would mean Google's servers
+and a Google account on a phone in Iran.
+
+**Costs:** a ring can take up to one alarm interval when the Host's usual
+bridge is the one the Receiver could not reach. **Unverified:** how long a
+waiting request survives on a sleeping phone with the battery exemption
+granted; that needs hardware.
+
+---
+
+## D29 — The Host's screens are a web build behind one narrow interface (2026-11-24)
+
+**Chosen:** the screens are built from the same project as the Receiver's and
+shown in a WebView. They reach the phone only through `HostApi`: one call that
+returns what to draw, and one per button. Pairing, keys, sealing and every
+network request stay in Kotlin. The WebView refuses the screens any request
+that is not for a bundled file.
+
+**Rejected:** pairing in the WebView with the Receiver's TypeScript, which
+already existed and would have saved writing it twice; native screens.
+
+**Why:** D19 wants screens that can be replaced without a new APK. Whatever can
+be replaced that way must not be able to read a key or send anything, or the
+signature on a screen update becomes the only thing between a bridge and every
+message. With the keys in Kotlin and the page offline, the worst a bad screen
+can do is show the wrong thing.
+
+Two implementations of pairing can drift, so one pairing is written down
+(`receiver/test/pairing-vectors.json`) and a test on each side recomputes it.
+
+**Not built yet:** fetching and verifying a signed screen build (D19). Today
+the build is inside the APK.

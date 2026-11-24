@@ -32,12 +32,16 @@ choice was made is in [DECISIONS.md](DECISIONS.md); this file says what exists.
 | Directory | What it is | Runs on |
 |---|---|---|
 | `host/` | The Host app's native core, Kotlin | Android 8+ |
+| `receiver/` | The screens, TypeScript: the Receiver web app, and the Host's screens beside it | Browsers; a WebView inside each app |
+| `receiver-apk/` | The Receiver as an Android app: a window and notifications around the same screens | Android 8+ |
+| `shell/` | What the two apps share: serving bundled screens to a WebView | |
 | `bridge/` | The bridge, TypeScript. One protocol, two entry points | Cloudflare Workers; Node in a container |
-| `receiver/` | The Receiver: a web app, and the pairing and opening code under it | Browsers |
 | `docs/` | This record | |
 
-Gradle is at the root with one module, `:host`. `bridge/` and `receiver/` are
-separate npm packages.
+Gradle is at the root with three modules, `:host`, `:receiver-apk` and
+`:shell`. `bridge/` and `receiver/` are separate npm packages. The apps' screens
+are built from `receiver/` into each app's assets before Gradle runs
+(`npm run build:host`, `npm run build:apk`); they are not in git.
 
 ## 1. Capture (Host)
 
@@ -48,17 +52,20 @@ separate npm packages.
 2. Resolve the subscription to an **ICCID** through `SimRegistry`. The ICCID is
    the stable identity; slot and subscription id change across reboots and swaps.
    A message that cannot be attributed to a SIM is dropped, never guessed.
-3. Write it to the outbox, sealed with a Keystore key. **Persist before anything
+3. Stop if nobody reads this SIM: the owner has not agreed yet, or no Receiver
+   is paired to it. Until then this is a phone receiving its own messages and
+   nothing is kept (D27).
+4. Write it to the outbox, sealed with a Keystore key. **Persist before anything
    else**: the process may be killed the moment the receiver returns.
-4. Wake `ForwarderService`.
+5. Wake `ForwarderService`.
 
 ## 2. Delivery (Host to bridges)
 
 `ForwarderService` is a `specialUse` foreground service (D7) that drains the
 outbox. For each message:
 
-1. Find the SIM's route: its label and its paired Receivers. No route, or consent
-   not acknowledged, and the message stays queued.
+1. Find who reads this SIM. Every paired Receiver does, unless the owner
+   narrowed one to particular SIMs (D27).
 2. Build the payload: SIM label, sender, body, the code if `MessageClassifier`
    found one, and the time.
 3. Seal the payload to each Receiver's public key with HPKE (D5, D16).
@@ -67,6 +74,14 @@ outbox. For each message:
 
 A message is done when every Receiver's copy has been accepted somewhere.
 Otherwise it backs off, capped at five minutes, and tries again.
+
+**Reports and commands (D26).** An alarm wakes the service about every twelve
+minutes to send each Receiver a status report: battery, charging, network and
+how many SMS are waiting. An alarm, because a thread's timer does not run on a
+phone in deep sleep. For each Receiver the service also waits for commands, at
+one bridge at a time, and looks at the others on every alarm (D28). `buzz`
+rings as an alarm for twenty seconds and vibrates; either command is answered
+with a report that names it.
 
 **The message id.** A bridge sees one cleartext field besides the box: the id,
 which the Receiver uses to show a message once. It is
@@ -137,7 +152,13 @@ Behind a gear on the message list is a side panel: the Hosts, with rename and
 remove; language, notifications and deleting all messages; and the help.
 
 A notification appears only while the app is open or in the background. Waking
-a closed app needs web push, which is not built. The Android shell is not built.
+a closed app needs web push, which is not built.
+
+**As an Android app.** `receiver-apk/` packs the same build into an APK and
+shows it in a WebView. Inside it the screens skip the install step and the
+service worker, and ask the app to raise notifications (`src/app/shell.ts`,
+`ShellApi` in `MainActivity.kt`). It asks for no SMS permission and runs
+nothing in the background.
 
 ## 5. Pairing
 
@@ -150,27 +171,50 @@ A slot is found by an id derived from the code, holds at most eight small
 messages for ten minutes, and is never written to disk. Only a post creates
 one; a read of a slot nobody has posted to is answered after a short wait.
 
-The Receiver's side is built. The Host app's side is not: until it is,
-`npm run fake-host` in `receiver/` stands in for a phone.
+Both sides are built: `src/pairing.ts` for the Receiver, `HostPairing.kt` for
+the Host. They are two implementations of one protocol, held together by a
+pairing written down in `receiver/test/pairing-vectors.json` that a test on
+each side recomputes. `npm run fake-host` in `receiver/` still stands in for a
+phone when there is none to hand.
 
-## 6. Updating without a new APK
+## 6. The Host's screens, and updating them
 
-Not built. The design is D19: the Host's native core is fixed, and its screens
-and configuration arrive as signed files through the bridges.
+The Host's screens are a web build (`receiver/src/host-app/`) shown in a
+WebView. They are kept apart from the native core by one narrow interface,
+`HostApi.kt`, mirrored in `native.ts`:
+
+- `state()` returns everything the screens draw, as JSON;
+- the other methods are the buttons: ask for a permission, start or answer a
+  pairing, choose a Receiver's SIMs, remove one, send a test message.
+
+The screens hold no key and make no request. The shell refuses any request
+they make that is not for a bundled file, and sends a content security policy
+that says the same (`WebShell.kt`).
+
+Today the build ships inside the APK. Fetching a signed build through the
+bridges, so screens change without a new APK, is D19 and is not built. The
+split it needs is in place.
 
 ## 7. Surviving the phone's manufacturer
 
-Not built. The code is the same on every phone; what differs is the setup each
-manufacturer demands before it stops killing background services. The Host will
-detect the brand, open the right settings screen, and then send a test message
-through the real path to prove it worked.
+Partly built. Setup asks for the battery exemption Android itself offers, and
+the home screen has a button that sends a test message through the real path
+and says whether a bridge took it. Not built: detecting the brand and opening
+the extra settings screen each manufacturer hides its own app-killer behind.
 
 ## 8. Permissions
 
 `RECEIVE_SMS`, `READ_PHONE_STATE` (to identify the SIM), `INTERNET`,
 `FOREGROUND_SERVICE` and `FOREGROUND_SERVICE_SPECIAL_USE`,
 `RECEIVE_BOOT_COMPLETED`, `POST_NOTIFICATIONS`,
-`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `ACCESS_NETWORK_STATE` (for the status
+report), `VIBRATE` and `WAKE_LOCK` (to ring, and to finish a send before the
+phone sleeps again).
+
+They are asked for one at a time, each after a sentence saying what it is for.
+On Android 15 and later an app installed from outside the store is refused
+`RECEIVE_SMS` until the owner allows "restricted settings" for it; setup says
+so and opens the right screen.
 
 Not `READ_SMS`. `RECEIVE_SMS` delivers new messages; `READ_SMS` would also open
 the whole inbox, which the Host has no reason to touch. Not a notification

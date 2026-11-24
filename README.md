@@ -4,7 +4,7 @@ title: EasyOTP
 description: Read the SMS of a SIM card you left in another country, sealed end to end, over bridges that cannot read it.
 status: active
 created: 2026-09-17
-timestamp: 2026-11-23
+timestamp: 2026-11-24
 tags: []
 ---
 
@@ -25,12 +25,18 @@ own devices can read them.
 
 ### Status
 
-**This is not usable yet.** The Host captures, stores, seals and sends, the
-bridge holds and hands over sealed messages, and the Receiver's library opens
-them; each is tested, and CI builds a signed Host APK and the bridge image. No
-bridge is deployed, the Receiver has no screens, pairing is not built, and
-nothing has run on a real phone. [`docs/STATUS.md`](docs/STATUS.md) has the
-detail.
+**It works end to end, and has not yet run on a real phone.** Both bridges are
+live. The Receiver web app is live and has been used on an iPhone. The Host app
+pairs, forwards SMS, reports on itself and rings when asked; that was checked
+on an Android emulator against the live bridges, with a simulated SMS. What is
+left before anyone should rely on it is a real SIM in a real phone, left alone
+for days. No release has been published yet.
+[`docs/STATUS.md`](docs/STATUS.md) has the detail.
+
+<p>
+  <img src="docs/img/host-setup.png" alt="The Host app's first setup screen, in Persian" width="240">
+  <img src="docs/img/receiver-app.png" alt="The Receiver showing a Host that is alive and one SMS with its code" width="240">
+</p>
 
 ### What you install
 
@@ -40,9 +46,10 @@ detail.
 | **Receiver** (web app) | any phone or computer | Shows the messages. You add it to your home screen once |
 | **Receiver** (Android) | an Android phone | The same screens, with native notifications. It asks for no SMS permission |
 
-The Host is installed once. Its screens, texts and settings update on their own
-after that; the installed APK is replaced only if its small native core ever has
-to change.
+The Host is meant to be installed once. Its screens are web pages kept apart
+from its small native core, so that they can later be updated without a new
+APK. Today they ship inside the APK, and that update path is designed but not
+built.
 
 ### How it works
 
@@ -87,8 +94,10 @@ would differ.
 | Directory | What it is |
 |---|---|
 | [`host/`](host) | The Host app's native core, in Kotlin |
+| [`receiver/`](receiver) | The screens, in TypeScript: the Receiver web app, the inside of the Receiver APK, and the Host's screens |
+| [`receiver-apk/`](receiver-apk) | The Receiver as an Android app: a window around the same screens |
+| [`shell/`](shell) | What the two Android apps share: showing screens bundled in an APK |
 | [`bridge/`](bridge) | The bridge, in TypeScript: a Cloudflare Worker and a Node container from one protocol |
-| [`receiver/`](receiver) | The library that opens sealed messages |
 | [`docs/`](docs) | Architecture, decisions, threat model, bridges, status |
 
 ### Build
@@ -99,8 +108,19 @@ GitHub Actions builds and signs everything; see
 ```sh
 cd bridge && npm ci && npm test          # Workers runtime and Node
 cd receiver && npm ci && npm test
-./gradlew :host:testDebugUnitTest        # needs JDK 21 and the Android SDK
 ```
+
+The Android apps need JDK 21 and the Android SDK. Their screens are built from
+`receiver/` first:
+
+```sh
+cd receiver && npm run build:host && npm run build:apk && cd ..
+./gradlew :host:testDebugUnitTest :shell:testDebugUnitTest
+./gradlew :host:assembleDebug :receiver-apk:assembleDebug
+```
+
+With an emulator running and the Host installed on it, `npm run emulator-check`
+in `receiver/` sets the app up, pairs with it, sends it an SMS and rings it.
 
 A release APK is signed with a certificate whose SHA-256 is
 `FA:73:5C:EC:02:67:E0:66:61:1C:E1:AF:A3:1C:50:E6:61:D0:FB:8B:51:D6:ED:2E:39:A5:E8:FB:06:6B:BC:5A`.
@@ -126,11 +146,12 @@ publish their changes too.
 
 ### وضعیت
 
-**این برنامه هنوز قابل استفاده نیست.** فرستنده پیامک را می‌گیرد، ذخیره و رمز می‌کند
-و می‌فرستد. پل بستهۀ رمزشده را نگه می‌دارد و تحویل می‌دهد. کتابخانهۀ گیرنده آن را
-باز می‌کند. هر سه بخش آزمایش شده‌اند و نسخهۀ امضاشدهۀ فرستنده و ایمیج پل
-به‌صورت خودکار ساخته می‌شوند. هنوز هیچ پلی راه‌اندازی نشده، گیرنده صفحه‌ای ندارد،
-جفت‌کردن ساخته نشده و هیچ‌چیز روی گوشی واقعی اجرا نشده است. جزئیات در
+**از سر تا ته کار می‌کند، ولی هنوز روی گوشی واقعی اجرا نشده است.** هر دو پل
+راه افتاده‌اند. وب‌اپ گیرنده در دسترس است و روی آیفون امتحان شده. برنامهۀ
+فرستنده جفت می‌شود، پیامک را می‌فرستد، از وضع خودش خبر می‌دهد و هر وقت بخواهید
+زنگ می‌زند. این‌ها روی شبیه‌ساز اندروید و با پل‌های واقعی و یک پیامک ساختگی
+آزمایش شده‌اند. چیزی که مانده، یک سیم‌کارت واقعی در یک گوشی واقعی است که چند
+روز به حال خودش رها شود. هنوز نسخه‌ای منتشر نشده است. جزئیات در
 [`docs/STATUS.md`](docs/STATUS.md) آمده است.
 
 ### چه چیزی نصب می‌کنید
@@ -141,9 +162,10 @@ publish their changes too.
 | **گیرنده** (وب‌اپ) | هر گوشی یا رایانه | پیام‌ها را نشان می‌دهد. یک بار آن را به صفحهۀ اصلی اضافه می‌کنید |
 | **گیرنده** (اندروید) | گوشی اندرویدی | همان صفحه‌ها، با اعلان خود اندروید. هیچ دسترسی‌ای به پیامک نمی‌خواهد |
 
-فرستنده یک بار نصب می‌شود. بعد از آن صفحه‌ها، متن‌ها و تنظیماتش خودشان به‌روز
-می‌شوند. فایل نصب‌شده فقط وقتی عوض می‌شود که هستهۀ کوچک آن نیاز به تغییر داشته
-باشد.
+قرار است فرستنده یک بار نصب شود. صفحه‌هایش صفحه‌های وب‌اند و از هستهۀ کوچک
+برنامه جدا نگه داشته شده‌اند تا بعداً بدون نصب دوباره به‌روز شوند. امروز این
+صفحه‌ها درون خود فایل نصب قرار دارند و آن راه به‌روزرسانی طراحی شده ولی ساخته
+نشده است.
 
 ### چطور کار می‌کند
 
@@ -183,8 +205,10 @@ publish their changes too.
 | پوشه | چیست |
 |---|---|
 | [`host/`](host) | هستهۀ برنامهۀ فرستنده، به زبان Kotlin |
+| [`receiver/`](receiver) | صفحه‌ها، به زبان TypeScript: وب‌اپ گیرنده، درون برنامهۀ اندرویدی گیرنده، و صفحه‌های فرستنده |
+| [`receiver-apk/`](receiver-apk) | گیرنده به شکل برنامهۀ اندروید: پنجره‌ای دور همان صفحه‌ها |
+| [`shell/`](shell) | بخش مشترک دو برنامهۀ اندروید: نمایش صفحه‌هایی که درون فایل نصب‌اند |
 | [`bridge/`](bridge) | پل، به زبان TypeScript. یک پروتکل که هم روی Cloudflare Workers اجرا می‌شود و هم در یک کانتینر Node |
-| [`receiver/`](receiver) | کتابخانه‌ای که پیام رمزشده را باز می‌کند |
 | [`docs/`](docs) | معماری، تصمیم‌ها، مدل تهدید، پل‌ها و وضعیت |
 
 ### ساخت

@@ -102,7 +102,8 @@ Each is a test or a property of the build, not an intention.
 
 The product forwards messages from SIM cards the operator physically holds.
 Where a SIM belongs to someone else, which is the household case this was built
-for, the Host records an explicit acknowledgement per SIM before it forwards
-anything from it. That is a product requirement, not legal advice: countries
+for, the Host records the owner's explicit acknowledgement before it captures
+or forwards anything, and lets each Receiver be limited to particular SIMs
+(D27). That is a product requirement, not legal advice: countries
 differ on intercepting another person's messages. Sold commercially, this needs
 review under Finnish and EU law first.
