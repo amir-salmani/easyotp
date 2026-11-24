@@ -3,6 +3,7 @@ package ir.rhinocloud.easyotp.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -124,6 +125,10 @@ class ForwarderService : Service() {
 
         listen(receivers)
         when (intent?.action) {
+            ACTION_SILENCE -> {
+                Buzzer.silence(this)
+                getSystemService(NotificationManager::class.java)?.cancel(RING_NOTIFICATION_ID)
+            }
             ACTION_STATUS -> {
                 report(receivers, ack = null)
                 listeners.values.forEach { listener -> side.execute { runCatching { listener.sweep() } } }
@@ -366,6 +371,10 @@ class ForwarderService : Service() {
                 NotificationChannel(RING_CHANNEL_ID, getString(R.string.ring_channel), NotificationManager.IMPORTANCE_HIGH),
             )
         }
+        val silence = PendingIntent.getService(
+            this, 0, Intent(this, ForwarderService::class.java).setAction(ACTION_SILENCE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         runCatching {
             manager.notify(
                 RING_NOTIFICATION_ID,
@@ -374,6 +383,10 @@ class ForwarderService : Service() {
                     // Whoever picks the phone up should see why it rang.
                     .setContentText(getString(R.string.ring_text, from))
                     .setSmallIcon(android.R.drawable.stat_notify_more)
+                    // Tapping it, its button, or swiping it away all stop the ring.
+                    .setContentIntent(silence)
+                    .setDeleteIntent(silence)
+                    .addAction(Notification.Action.Builder(null, getString(R.string.ring_stop), silence).build())
                     .setAutoCancel(true)
                     .build(),
             )
@@ -426,6 +439,9 @@ class ForwarderService : Service() {
 
         /** The list of paired Receivers changed. */
         const val ACTION_RELOAD = "ir.rhinocloud.easyotp.RELOAD"
+
+        /** Someone at the phone wants the ring to stop. */
+        const val ACTION_SILENCE = "ir.rhinocloud.easyotp.SILENCE"
 
         /** Send every Receiver a test message. */
         const val ACTION_TEST = "ir.rhinocloud.easyotp.TEST"

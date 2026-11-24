@@ -5,6 +5,7 @@ import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
 import android.window.OnBackInvokedDispatcher
+import ir.rhinocloud.easyotp.service.Buzzer
 import ir.rhinocloud.easyotp.service.ForwarderService
 import ir.rhinocloud.easyotp.service.HostEvents
 import ir.rhinocloud.easyotp.shell.WebShell
@@ -39,6 +40,9 @@ class MainActivity : Activity() {
         // Opening the app is the one moment Android always lets the service
         // start, so it is also the repair for a service that was stopped.
         ForwarderService.wake(this)
+        // Picking the phone up and opening the app is how most people will
+        // answer a ring. It has done its job.
+        Buzzer.silence(this)
         // The person may be coming back from a permission screen.
         changed()
     }

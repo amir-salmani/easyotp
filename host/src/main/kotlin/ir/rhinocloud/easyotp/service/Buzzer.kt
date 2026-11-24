@@ -17,6 +17,10 @@ import android.util.Log
  * D26). The point is to get someone near the phone to look at it: to plug it
  * in, or to confirm it is where it should be.
  *
+ * It stops by itself after [RING_MILLIS], and at once when someone opens the
+ * app, or taps or swipes away the notification that says why it is ringing.
+ * A sound nobody at the phone can turn off is a reason to uninstall.
+ *
  * It plays as an alarm, and turns the alarm volume up for as long as it rings.
  * A phone left on silent in a drawer is exactly the phone this is for, and the
  * alarm stream is the one Android lets through in that state.
@@ -62,6 +66,12 @@ object Buzzer {
             }
         }
         main.postDelayed({ stop(app) }, RING_MILLIS)
+    }
+
+    /** Whoever is holding the phone has heard it. Safe from any thread, and when nothing is ringing. */
+    fun silence(context: Context) {
+        val app = context.applicationContext
+        main.post { stop(app) }
     }
 
     private fun stop(context: Context) {

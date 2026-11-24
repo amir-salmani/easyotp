@@ -5,6 +5,7 @@
     <string name="notification_pending">%1$d پیام در صف ارسال</string>
     <string name="ring_channel">درخواست زنگ</string>
     <string name="ring_text">%1$s خواست این گوشی زنگ بزند</string>
+    <string name="ring_stop">خاموش کردن زنگ</string>
     <string name="test_sim">آزمایشی</string>
     <string name="test_body">این یک پیام آزمایشی از %1$s است. اگر آن را می‌خوانید، ارسال پیامک‌ها کار می‌کند.</string>
 </resources>
