@@ -76,8 +76,10 @@ self.addEventListener("fetch", (event) => {
 });
 
 const WAITING = {
-  fa: { title: "پیامک تازه رسید", body: "برای دیدن آن EasyOTP را باز کنید." },
-  en: { title: "A new SMS has arrived", body: "Open EasyOTP to read it." },
+  // The push that wakes this worker is empty, so it cannot tell an SMS from a
+  // call that is ringing. The words cover both.
+  fa: { title: "پیامک یا تماس تازه", body: "برای دیدن آن EasyOTP را باز کنید." },
+  en: { title: "A new SMS or call", body: "Open EasyOTP to see it." },
 };
 
 // A bridge says a message is waiting. A browser, an iPhone above all, takes
