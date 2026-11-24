@@ -17,6 +17,8 @@ export function mockNative(): Native {
   const ready = query.has("ready");
   const state: HostState = {
     version: "dev",
+    // ?brand=xiaomi plays a phone whose maker hides an app-killer.
+    brand: (query.get("brand") as HostState["brand"]) ?? null,
     label: "Galaxy A14",
     consent: ready,
     calls: false,
@@ -42,7 +44,7 @@ export function mockNative(): Native {
     ask(what) {
       // ?deny plays a phone that refuses the SMS permission, as Android does
       // for an app installed from outside the store.
-      if (what === "settings" || (what === "sms" && query.has("deny"))) return changed();
+      if (what === "settings" || what === "autostart" || (what === "sms" && query.has("deny"))) return changed();
       state.perms[what as Permission] = true;
       changed();
     },

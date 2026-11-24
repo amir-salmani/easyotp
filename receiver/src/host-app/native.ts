@@ -10,9 +10,15 @@
 
 /** `send` and `calls` are the two optional powers (DECISIONS D31), asked for only when switched on. */
 export type Permission = "sms" | "phone" | "notify" | "battery" | "send" | "calls" | "contacts";
+/** What the phone can be asked to open. `autostart` is the maker's own app-killer screen. */
+export type Askable = Permission | "settings" | "autostart";
+/** Phone makers whose phones hide a second app-killer of their own. */
+export type Brand = "xiaomi" | "huawei" | "oppo" | "vivo" | "samsung" | "asus";
 
 export interface HostState {
   version: string;
+  /** Set when this phone's maker hides an app-killer of its own; see BrandSetup.kt. */
+  brand: Brand | null;
   /** What Receivers see this phone called. */
   label: string;
   /** The owner has confirmed they may forward this phone's messages. */
@@ -42,7 +48,7 @@ export interface HostState {
 
 export interface Native {
   state(): string;
-  ask(what: Permission | "settings"): void;
+  ask(what: Askable): void;
   setLabel(label: string): void;
   setConsent(agreed: boolean): void;
   pairStart(): void;

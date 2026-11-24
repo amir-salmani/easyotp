@@ -56,6 +56,8 @@ class HostApi(private val activity: MainActivity) {
         val pair = session
         return JSONObject()
             .put("version", versionName())
+            // A maker whose phones hide a second app-killer, or null (see BrandSetup).
+            .put("brand", BrandSetup.brand() ?: JSONObject.NULL)
             .put("label", label())
             .put("consent", settings.consent)
             .put("calls", settings.calls)
@@ -112,6 +114,10 @@ class HostApi(private val activity: MainActivity) {
                     arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS), 5,
                 )
                 "contacts" -> activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 6)
+                "autostart" -> BrandSetup.open(
+                    activity,
+                    Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                )
                 // Android shows its own yes-or-no question for this one.
                 "battery" -> activity.startActivity(
                     Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
