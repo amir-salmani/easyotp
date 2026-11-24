@@ -83,6 +83,11 @@ try {
   await page.getByRole("button", { name: "اتصال یک گیرنده" }).click();
   const abandoned = await until("a code", async () => (await state(page)).pair?.code);
   // The phone's Back button gives up a pairing, and the next one has a new code.
+  // Wait for the page to show the code first: Back on the home screen leaves the app.
+  await page.getByText("در انتظار گیرنده").waitFor();
+  // An emulator fresh from boot sometimes puts a "not responding" dialog on top, which would take the key.
+  const focus = /mCurrentFocus=.*/.exec(adb("shell", "dumpsys", "window"))?.[0] ?? "";
+  if (!focus.includes(APP)) throw new Error(`something else is in front of the app: ${focus}`);
   adb("shell", "input", "keyevent", "BACK");
   await until("Back to close the pairing", async () => (await state(page)).pair === null);
   await page.getByRole("button", { name: "اتصال یک گیرنده" }).click();
