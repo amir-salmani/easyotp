@@ -32,7 +32,7 @@ export async function simHost(opts: {
   every?: number;
   /** What this Host says about itself. Changed by a test to play a dying battery. */
   state?: Pick<Status, "battery" | "charging" | "net" | "pending">;
-  onCommand?: (cmd: "buzz" | "ping") => void;
+  onCommand?: (cmd: "buzz" | "ping" | "hush") => void;
 }): Promise<SimHost> {
   const f: Fetch = opts.fetch ?? ((input, init) => fetch(input, init));
   const every = opts.every ?? 30;

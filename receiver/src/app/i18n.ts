@@ -94,6 +94,8 @@ const fa = {
   refresh: "خبر تازه",
   asking: "در حال رساندن به گوشی",
   buzzed: "گوشی زنگ زد",
+  hush: "خاموش کردن زنگ",
+  hushed: "زنگ خاموش شد",
   refreshed: "خبر تازه رسید",
   noAnswer: "گوشی پاسخی نداد. ممکن است خاموش باشد یا اینترنت نداشته باشد.",
   // Side panel
@@ -231,6 +233,8 @@ const en: typeof fa = {
   refresh: "Refresh",
   asking: "Reaching the phone",
   buzzed: "The phone rang",
+  hush: "Stop the ring",
+  hushed: "The ring was stopped",
   refreshed: "Fresh report received",
   noAnswer: "The phone did not answer. It may be off or without internet.",
   menu: "Hosts and settings",

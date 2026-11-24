@@ -48,7 +48,7 @@ data class HostStatus(
 
 /** Something a paired Receiver asks this phone to do. */
 data class Command(val id: String, val at: Long, val what: What) {
-    enum class What { BUZZ, PING }
+    enum class What { BUZZ, PING, HUSH }
 }
 
 /**
@@ -82,6 +82,7 @@ class CommandInbox(private val keys: HpkeKeyPair, private val memory: CommandMem
             val what = when (m.optString("cmd")) {
                 "buzz" -> Command.What.BUZZ
                 "ping" -> Command.What.PING
+                "hush" -> Command.What.HUSH
                 else -> return null
             }
             Command(envelopeId, m.optLong("at"), what)

@@ -123,6 +123,10 @@ async function main() {
   await page.getByRole("button", { name: "زنگ بزن" }).click();
   await page.getByText("گوشی زنگ زد").waitFor();
   assert.deepEqual(mum.rings, ["buzz"]);
+  // Whoever made it ring can stop it from here.
+  await page.getByRole("button", { name: "خاموش کردن زنگ" }).click();
+  await page.getByText("زنگ خاموش شد").waitFor();
+  assert.deepEqual(mum.rings, ["buzz", "hush"]);
 
   // A dying battery, off the charger, is said in words.
   await mum.sendStatus({ battery: 12, charging: false });

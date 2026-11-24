@@ -65,8 +65,12 @@ export interface Command {
   k: "cmd";
   id: string;
   at: number;
-  /** `buzz`: ring and vibrate, so someone nearby notices the phone. `ping`: report now. */
-  cmd: "buzz" | "ping";
+  /**
+   * `buzz`: ring and vibrate, so someone nearby notices the phone. `hush`:
+   * stop ringing. `ping`: report now. A Host that does not know a command
+   * ignores it, so a new one can be added without breaking an old phone.
+   */
+  cmd: "buzz" | "ping" | "hush";
 }
 
 export class OpenError extends Error {}
@@ -125,7 +129,7 @@ function isStatus(x: unknown): x is Status {
 function isCommand(x: unknown): x is Command {
   if (typeof x !== "object" || x === null) return false;
   const c = x as Record<string, unknown>;
-  return c.v === 2 && c.k === "cmd" && typeof c.id === "string" && typeof c.at === "number" && Number.isFinite(c.at) && (c.cmd === "buzz" || c.cmd === "ping");
+  return c.v === 2 && c.k === "cmd" && typeof c.id === "string" && typeof c.at === "number" && Number.isFinite(c.at) && (c.cmd === "buzz" || c.cmd === "ping" || c.cmd === "hush");
 }
 
 /**

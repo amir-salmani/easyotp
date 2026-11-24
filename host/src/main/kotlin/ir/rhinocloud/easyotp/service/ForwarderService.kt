@@ -291,9 +291,17 @@ class ForwarderService : Service() {
     private fun obey(receiver: Receiver, command: Command) {
         Log.i(TAG, "command ${command.what}")
         runCatching { awake?.acquire(AWAKE_MILLIS) }
-        if (command.what == Command.What.BUZZ) {
-            Buzzer.ring(this, receiver.label)
-            notifyRing(receiver.label)
+        when (command.what) {
+            Command.What.BUZZ -> {
+                Buzzer.ring(this, receiver.label)
+                notifyRing(receiver.label)
+            }
+            // Whoever made it ring has heard enough, or pressed by mistake.
+            Command.What.HUSH -> {
+                Buzzer.silence(this)
+                getSystemService(NotificationManager::class.java)?.cancel(RING_NOTIFICATION_ID)
+            }
+            Command.What.PING -> Unit
         }
         // The answer names the command, which is how the person who pressed
         // the button knows this phone really did it.

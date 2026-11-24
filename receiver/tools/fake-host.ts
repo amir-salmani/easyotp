@@ -38,7 +38,10 @@ console.log(`\nRead this code to the person with the Receiver:\n\n    ${code.sli
 const state = { battery: 82, charging: true, net: "wifi" as const, pending: 0 };
 const host = await simHost({
   bridges, code, label: name, state, every: 30, fetch: steadyFetch,
-  onCommand: (cmd) => console.log(cmd === "buzz" ? "\n\u0007*** The Receiver asked this phone to RING ***" : "\n(the Receiver asked for a fresh report)"),
+  onCommand: (cmd) =>
+    console.log(
+      cmd === "buzz" ? "\n\u0007*** The Receiver asked this phone to RING ***" : cmd === "hush" ? "\n(the Receiver asked the ring to stop)" : "\n(the Receiver asked for a fresh report)",
+    ),
 });
 const colour = COLOURS[host.picture.colour]!;
 const thing = THINGS[host.picture.thing]!;
