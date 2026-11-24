@@ -82,7 +82,12 @@ export class BoxObject extends DurableObject<Env> {
     }
     this.lastPushAt = now;
     const outcome = await tickle(vapid, address.endpoint, now);
-    if (outcome === "gone") await this.ctx.storage.delete(PUSH_KEY);
+    if (outcome === "gone") {
+      // Only the address that was pushed to. The Receiver may have left a new
+      // one while this push was on its way, and that one is good.
+      const still = await this.ctx.storage.get<PushAddress>(PUSH_KEY);
+      if (still?.endpoint === address.endpoint) await this.ctx.storage.delete(PUSH_KEY);
+    }
     log({ route: "push", outcome: outcome === "sent" ? "ok" : "rejected", reason: outcome });
   }
 

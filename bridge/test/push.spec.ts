@@ -153,6 +153,34 @@ describe("an address that is taken back or has died", () => {
   });
 });
 
+describe("an address renewed while a push is on its way", () => {
+  it("is kept, though the push service calls the old one gone", async () => {
+    const box = await newBox();
+    await leave(box.url, box.boxKey, `${APPLE}/old`);
+    // The push service answers slowly, and says the old address is gone.
+    let release: () => void = () => undefined;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      pushes.push({ url: String(input instanceof Request ? input.url : input), headers: new Headers(), body: "" });
+      await new Promise<void>((r) => (release = r));
+      return new Response(null, { status: 410 });
+    });
+    await deposit(box.url, sealed());
+    await new Promise((r) => setTimeout(r, 100));
+    // Meanwhile the Receiver opens and leaves its new address.
+    await leave(box.url, box.boxKey, `${APPLE}/new`);
+    release();
+    await settled();
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      pushes.push({ url: String(input instanceof Request ? input.url : input), headers: new Headers(), body: "" });
+      return new Response(null, { status: 201 });
+    });
+    await new Promise((r) => setTimeout(r, 3200));
+    await deposit(box.url, sealed());
+    await settled();
+    expect(pushes.at(-1)!.url).toBe(`${APPLE}/new`);
+  });
+});
+
 describe("the bridge's signature on a push", () => {
   const vapid = { publicKey: testKey.publicKey, privateJwk: testKey.privateJwk as JsonWebKey, subject: "https://example.test/easyotp" };
   const fromB64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
