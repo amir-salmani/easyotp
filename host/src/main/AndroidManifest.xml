@@ -25,14 +25,17 @@
     <application
         android:name=".EasyOtpApp"
         android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.EasyOTP"
         android:allowBackup="false"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        android:enableOnBackInvokedCallback="true"
         android:supportsRtl="true">
 
         <activity
             android:name=".ui.MainActivity"
             android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard|uiMode|locale|layoutDirection|fontScale|density|smallestScreenSize"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

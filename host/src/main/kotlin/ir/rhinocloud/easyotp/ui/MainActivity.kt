@@ -1,24 +1,72 @@
 package ir.rhinocloud.easyotp.ui
 
 import android.app.Activity
+import android.os.Build
 import android.os.Bundle
-import android.widget.TextView
-import ir.rhinocloud.easyotp.R
+import android.webkit.WebView
+import android.window.OnBackInvokedDispatcher
+import ir.rhinocloud.easyotp.service.ForwarderService
+import ir.rhinocloud.easyotp.service.HostEvents
+import ir.rhinocloud.easyotp.shell.WebShell
 
 /**
- * A placeholder. The real screens are a signed web bundle that this activity
- * will load (DECISIONS D19), so nothing is built here that would be thrown away.
+ * The Host's one window. Every screen in it is a web page bundled in the APK
+ * (DECISIONS D19); this class only shows the page and tells it when something
+ * it displays may have changed. What the page can ask for is [HostApi].
  */
 class MainActivity : Activity() {
+
+    private lateinit var web: WebView
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val padding = (24 * resources.displayMetrics.density).toInt()
-        setContentView(
-            TextView(this).apply {
-                setText(R.string.app_name)
-                textSize = 18f
-                setPadding(padding, padding, padding, padding)
-            },
-        )
+        web = WebView(this)
+        val shell = WebShell(this, assetRoot = "ui", network = false)
+        setContentView(shell.frame(web))
+        web.addJavascriptInterface(HostApi(this), "EasyOtpNative")
+        shell.attach(web, "host.html")
+        HostEvents.onChange = ::changed
+        // The page decides what Back means: close what is open, or leave.
+        // From Android 13 a back gesture is delivered only this way.
+        if (Build.VERSION.SDK_INT >= 33) {
+            onBackInvokedDispatcher.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT) { tell(BACK) }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Opening the app is the one moment Android always lets the service
+        // start, so it is also the repair for a service that was stopped.
+        ForwarderService.wake(this)
+        // The person may be coming back from a permission screen.
+        changed()
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        changed()
+    }
+
+    override fun onDestroy() {
+        HostEvents.onChange = null
+        web.destroy()
+        super.onDestroy()
+    }
+
+    /** Back on Android 12 and older, where the callback above does not exist. */
+    @Suppress("GestureBackNavigation", "OVERRIDE_DEPRECATION")
+    override fun onBackPressed() {
+        tell(BACK)
+    }
+
+    /** The page reads everything again. Safe from any thread. */
+    fun changed() = tell("easyotp:change")
+
+    private fun tell(event: String) {
+        web.post { web.evaluateJavascript("window.dispatchEvent(new Event('$event'))", null) }
+    }
+
+    private companion object {
+        const val BACK = "easyotp:back"
     }
 }
