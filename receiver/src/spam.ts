@@ -55,14 +55,27 @@ export function looksLikeAd(m: Pick<Message, "body" | "code">): boolean {
 export type Sorted = "inbox" | "spam-sender" | "spam-guess";
 
 /** Where a message is listed, and why, so the screen can say which it was. */
-export function sort(m: Pick<Message, "from" | "body" | "code">, settings: SpamSettings): Sorted {
+export function sort(m: Pick<Message, "from" | "body" | "code" | "kind">, settings: SpamSettings): Sorted {
+  // What this device's owner sent is theirs, whoever it went to.
+  if (m.kind === "sent") return "inbox";
   const rule = settings.rules[senderKey(m.from)];
   if (rule === "spam") return "spam-sender";
   if (rule === "ok") return "inbox";
   return settings.auto && looksLikeAd(m) ? "spam-guess" : "inbox";
 }
 
-export const isSpam = (m: Pick<Message, "from" | "body" | "code">, settings: SpamSettings) => sort(m, settings) !== "inbox";
+export const isSpam = (m: Pick<Message, "from" | "body" | "code" | "kind">, settings: SpamSettings) => sort(m, settings) !== "inbox";
+
+/**
+ * What to send, to whoever sent an advertisement, to stop getting them: the
+ * digits of its "لغو۱۱", in Latin digits as a carrier expects. Null if the
+ * message names none.
+ */
+export function optOutCode(body: string): string | null {
+  const found = new RegExp(`لغو\\s*[=:：]?\\s*(${DIGIT}{1,4})(?!${DIGIT})`).exec(body)?.[1];
+  if (!found) return null;
+  return found.replace(/[\u06F0-\u06F9]/g, (d) => String(d.charCodeAt(0) - 0x06f0)).replace(/[\u0660-\u0669]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+}
 
 /** The settings with one sender's rule set, or cleared with null. */
 export function withRule(settings: SpamSettings, from: string, rule: SenderRule | null): SpamSettings {

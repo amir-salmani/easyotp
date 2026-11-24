@@ -1,6 +1,6 @@
 /** Sorting advertising out of the inbox. What must never happen is a code going missing. */
 import { describe, expect, it } from "vitest";
-import { DEFAULT_SPAM, isSpam, looksLikeAd, sort, withRule } from "../src/spam";
+import { DEFAULT_SPAM, isSpam, looksLikeAd, optOutCode, sort, withRule } from "../src/spam";
 
 const sms = (body: string, code: string | null = null, from = "+98200") => ({ from, body, code });
 
@@ -50,5 +50,19 @@ describe("what the person said about a sender", () => {
   it("goes back to the guess when the rule is cleared", () => {
     const blocked = withRule(DEFAULT_SPAM, "MyShop", "spam");
     expect(sort(sms("سلام", null, "MyShop"), withRule(blocked, "MyShop", null))).toBe("inbox");
+  });
+});
+
+describe("stopping an advertiser", () => {
+  it("finds what to send back, in the digits a carrier expects", () => {
+    expect(optOutCode("حراج\nلغو11")).toBe("11");
+    expect(optOutCode("حراج لغو: ۲۲")).toBe("22");
+    expect(optOutCode("حراج لغو=٣")).toBe("3");
+    expect(optOutCode("لغو تراکنش شما انجام شد")).toBeNull();
+  });
+
+  it("never files under spam what this device's owner sent", () => {
+    const settings = withRule(DEFAULT_SPAM, "SHOP-X", "spam");
+    expect(sort({ from: "SHOP-X", body: "11", code: null, kind: "sent" }, settings)).toBe("inbox");
   });
 });

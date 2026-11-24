@@ -15,9 +15,11 @@ export async function sendCommand(
   bridges: readonly string[],
   host: HostChannel,
   cmd: Command["cmd"],
-  fetchImpl: Fetch = fetch,
+  fetchImpl: Fetch = (input, init) => fetch(input, init),
+  /** What an `sms` or a `decline` carries. */
+  extra: Pick<Command, "to" | "text" | "sim"> = {},
 ): Promise<string> {
-  const command: Command = { v: 2, k: "cmd", id: randomKey(24), at: Date.now(), cmd };
+  const command: Command = { v: 2, k: "cmd", id: randomKey(24), at: Date.now(), cmd, ...extra };
   const { enc, ct } = await seal(host.publicKey, command);
   const body = JSON.stringify({ v: 2, id: command.id, enc, ct });
   const post = async (bridge: string) => {

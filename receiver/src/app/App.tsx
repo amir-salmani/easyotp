@@ -75,7 +75,11 @@ export function App() {
           const wanted = fresh.filter((m) => !isSpam(m, spamRef.current));
           if (wanted.length === 0) return;
           // Never the text of the SMS: a notification shows on a locked screen.
-          const title = STRINGS[langRef.current].notifyTitle(wanted[0]!.sim);
+          // What this device asked the phone to send is not news to it.
+          const first = wanted.find((m) => m.kind !== "sent");
+          if (!first) return;
+          const strings = STRINGS[langRef.current];
+          const title = first.kind ? strings.notifyCall(first.sim) : strings.notifyTitle(first.sim);
           if (shell) {
             shell.notify(title);
           } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
