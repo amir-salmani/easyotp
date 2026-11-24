@@ -280,7 +280,10 @@ export function Messages(props: {
   // A call that went unanswered is told twice, ringing and then missed. Once
   // the second has arrived, the first has nothing left to say.
   const missed = new Set(props.messages.filter((m) => m.kind === "missed").map((m) => `${m.host} ${m.from} ${m.at}`));
-  const all = props.messages.filter((m) => !(m.kind === "call" && missed.has(`${m.host} ${m.from} ${m.at}`)));
+  // Only messages of Hosts still here: a Host and its messages are removed
+  // together, and the screen must not show one without the other even briefly.
+  const present = new Set(hosts.map((h) => h.id));
+  const all = props.messages.filter((m) => present.has(m.host) && !(m.kind === "call" && missed.has(`${m.host} ${m.from} ${m.at}`)));
   const ofHost = selected ? all.filter((m) => m.host === selected) : all;
   const byId = new Map(hosts.map((h) => [h.id, h]));
   /** Asks a message's Host to send or to decline. Resolves to whether a bridge took the request. */
