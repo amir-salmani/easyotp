@@ -48,6 +48,8 @@ export interface Message {
   why?: string;
   /** For "sent": the name of the Receiver that asked. */
   by?: string;
+  /** What the Host phone's owner calls `from` in their contacts, if they let names be sent. */
+  name?: string;
 }
 
 /**

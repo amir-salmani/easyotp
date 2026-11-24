@@ -35,6 +35,8 @@ data class Payload(
     val why: String? = null,
     /** For "sent": the name of the Receiver that asked. */
     val by: String? = null,
+    /** What the phone's owner calls [from] in their contacts, if they allow names to be sent. */
+    val name: String? = null,
 ) {
     fun encode(): ByteArray = JSONObject()
         .put("v", 2)
@@ -52,6 +54,7 @@ data class Payload(
         .apply { ok?.let { put("ok", it) } }
         .apply { why?.let { put("why", it) } }
         .apply { by?.let { put("by", it) } }
+        .apply { name?.let { put("name", it) } }
         .toString()
         .toByteArray()
 

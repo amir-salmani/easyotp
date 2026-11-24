@@ -59,6 +59,7 @@ class HostApi(private val activity: MainActivity) {
             .put("label", label())
             .put("consent", settings.consent)
             .put("calls", settings.calls)
+            .put("contacts", settings.contacts)
             .put(
                 "perms",
                 JSONObject()
@@ -68,7 +69,8 @@ class HostApi(private val activity: MainActivity) {
                     .put("battery", context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) ?: true)
                     // The two optional powers (DECISIONS D31). Asked for only when their switch is turned on.
                     .put("send", granted(Manifest.permission.SEND_SMS))
-                    .put("calls", granted(Manifest.permission.READ_CALL_LOG) && granted(Manifest.permission.ANSWER_PHONE_CALLS)),
+                    .put("calls", granted(Manifest.permission.READ_CALL_LOG) && granted(Manifest.permission.ANSWER_PHONE_CALLS))
+                    .put("contacts", granted(Manifest.permission.READ_CONTACTS)),
             )
             .put(
                 "sims",
@@ -109,6 +111,7 @@ class HostApi(private val activity: MainActivity) {
                 "calls" -> activity.requestPermissions(
                     arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS), 5,
                 )
+                "contacts" -> activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 6)
                 // Android shows its own yes-or-no question for this one.
                 "battery" -> activity.startActivity(
                     Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
@@ -220,6 +223,10 @@ class HostApi(private val activity: MainActivity) {
         settings.setReceiverCanSend(id, allowed)
         ForwarderService.wake(context, ForwarderService.ACTION_RELOAD)
     }
+
+    /** Whether a sender's name from this phone's contacts is sent along. */
+    @JavascriptInterface
+    fun setContacts(on: Boolean) = change { settings.contacts = on }
 
     /** Whether Receivers are told of calls and may decline them. */
     @JavascriptInterface

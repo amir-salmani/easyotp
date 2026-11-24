@@ -147,6 +147,11 @@ class Settings(
         putReceivers(receiversIn(this).map { if (it.id == id) it.copy(canSend = canSend) else it })
     }
 
+    /** Whether a sender's or caller's name from this phone's contacts travels with the message. */
+    var contacts: Boolean
+        get() = read().optBoolean(KEY_CONTACTS, false)
+        set(value) = mutate { put(KEY_CONTACTS, value) }
+
     /** Whether calls to this phone are told to its Receivers, and may be declined by them (DECISIONS D31). */
     var calls: Boolean
         get() = read().optBoolean(KEY_CALLS, false)
@@ -241,6 +246,7 @@ class Settings(
         private const val KEY_LABEL = "hostLabel"
         private const val KEY_CONSENT = "consent"
         private const val KEY_CALLS = "calls"
+        private const val KEY_CONTACTS = "contacts"
         private const val KEY_SALT = "installSalt"
         private const val SALT_BYTES = 32
 

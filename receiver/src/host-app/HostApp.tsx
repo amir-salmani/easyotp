@@ -400,6 +400,26 @@ function Home(props: {
         </Card>
       )}
 
+      {count > 0 && (
+        <Card className="flex flex-col gap-3">
+          <h2 className="font-semibold">{t.contactsTitle}</h2>
+          <label className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4 py-3 font-medium">
+            <input
+              type="checkbox"
+              className="size-6 shrink-0"
+              checked={state.contacts}
+              onChange={(e) => {
+                native.setContacts(e.target.checked);
+                if (e.target.checked && !state.perms.contacts) native.ask("contacts");
+              }}
+            />
+            {t.contactsOn}
+          </label>
+          <p className="text-muted-foreground">{t.contactsHint}</p>
+          {state.contacts && !state.perms.contacts && <Granting t={t} native={native} what="contacts" />}
+        </Card>
+      )}
+
       <Card className="flex flex-col gap-3">
         <label htmlFor="phone-name" className="font-semibold">
           {t.phoneName}

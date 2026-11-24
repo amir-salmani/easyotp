@@ -909,12 +909,19 @@ asks whether this exact number has been heard from, so the number has no
 reason to be stored a second time.
 
 **Calls.** The Host learns that the phone rings and the number, as its own
-screen shows. It never answers and hears nothing. The SIM a call came in on is
-not always told by Android; with two SIMs and no answer the call is left out
-rather than listed under the wrong line.
+screen shows. It never answers and hears nothing. Android's announcement of a
+ringing phone does not say which SIM: on the first real two-SIM phone it
+carried the number and nothing else, and every call was left out. So each SIM
+is asked for its own call state. If that still does not single one out, the
+call is left out rather than listed under the wrong line.
 
-**Three new permissions,** asked for only when their switch is turned on and
-never at setup: `SEND_SMS`, `READ_CALL_LOG` (Android gives the ringing number
+**Names.** A third switch sends, with a message or a call, the name the owner
+saved for that number in the phone's contacts (`READ_CONTACTS`, asked for only
+then). One name is looked up at the moment a message is sealed and travels
+inside the seal. The contact list is never read as a whole or stored.
+
+**Four new permissions,** `READ_CONTACTS` among them, asked for only when
+their switch is turned on and never at setup: `SEND_SMS`, `READ_CALL_LOG` (Android gives the ringing number
 only to an app that holds it; the log itself is never read) and
 `ANSWER_PHONE_CALLS` (to end a call; the app never answers one).
 

@@ -9,7 +9,7 @@
  */
 
 /** `send` and `calls` are the two optional powers (DECISIONS D31), asked for only when switched on. */
-export type Permission = "sms" | "phone" | "notify" | "battery" | "send" | "calls";
+export type Permission = "sms" | "phone" | "notify" | "battery" | "send" | "calls" | "contacts";
 
 export interface HostState {
   version: string;
@@ -19,6 +19,8 @@ export interface HostState {
   consent: boolean;
   /** Receivers are told of calls and may decline them. */
   calls: boolean;
+  /** A sender's name from this phone's contacts is sent along. */
+  contacts: boolean;
   perms: Record<Permission, boolean>;
   sims: Array<{ key: string; name: string }>;
   receivers: Array<{ id: string; label: string; pairedAt: number; sims: string[] | null; canSend: boolean }>;
@@ -52,6 +54,7 @@ export interface Native {
   /** Whether this Receiver may make the phone send an SMS. */
   setReceiverCanSend(id: string, allowed: boolean): void;
   setCalls(on: boolean): void;
+  setContacts(on: boolean): void;
   removeReceiver(id: string): void;
   sendTest(): void;
   stopRing(): void;

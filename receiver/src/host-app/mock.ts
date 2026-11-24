@@ -20,7 +20,8 @@ export function mockNative(): Native {
     label: "Galaxy A14",
     consent: ready,
     calls: false,
-    perms: { sms: ready, phone: ready, notify: ready, battery: ready, send: false, calls: false },
+    contacts: false,
+    perms: { sms: ready, phone: ready, notify: ready, battery: ready, send: false, calls: false, contacts: false },
     sims: [
       { key: "sub:1", name: "IR-MCI · SIM 1" },
       { key: "sub:2", name: "Irancell · SIM 2" },
@@ -99,6 +100,10 @@ export function mockNative(): Native {
     setReceiverCanSend(id, allowed) {
       const receiver = state.receivers.find((r) => r.id === id);
       if (receiver) receiver.canSend = allowed;
+      changed();
+    },
+    setContacts(on) {
+      state.contacts = on;
       changed();
     },
     setCalls(on) {

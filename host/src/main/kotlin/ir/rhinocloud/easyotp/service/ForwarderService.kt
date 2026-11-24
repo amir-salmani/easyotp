@@ -17,6 +17,7 @@ import android.telecom.TelecomManager
 import android.util.Log
 import ir.rhinocloud.easyotp.R
 import ir.rhinocloud.easyotp.capture.CallReceiver
+import ir.rhinocloud.easyotp.capture.ContactNames
 import ir.rhinocloud.easyotp.capture.MessageClassifier
 import ir.rhinocloud.easyotp.capture.SimRegistry
 import ir.rhinocloud.easyotp.data.CapturedMessage
@@ -277,6 +278,7 @@ class ForwarderService : Service() {
             at = message.receivedAt,
             kind = message.kind.takeUnless { isSms },
             simKey = message.iccid,
+            name = nameOf(message.sender),
         ).encode()
 
         // One bit a bridge learns: this one is not urgent. It already sees
@@ -445,6 +447,7 @@ class ForwarderService : Service() {
             ok = ok,
             why = why,
             by = by.label,
+            name = nameOf(number),
         ).encode()
         // Quiet: nobody needs waking to be told what they themselves just sent.
         to.forEach { receiver ->
@@ -483,6 +486,10 @@ class ForwarderService : Service() {
             }
         }
     }
+
+    /** The contact's name for a number, when the owner lets names be sent. */
+    private fun nameOf(number: String): String? =
+        if (runCatching { settings.contacts }.getOrDefault(false)) ContactNames.lookup(this, number) else null
 
     private fun randomId(): String =
         ReceiverSealer.base64UrlEncode(ByteArray(WIRE_ID_BYTES).also { SecureRandom().nextBytes(it) })

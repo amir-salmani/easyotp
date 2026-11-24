@@ -115,7 +115,17 @@ function MessageCard(props: {
     setTimeout(() => setCopied(false), 2000);
   };
   // A sender is a number or a Latin name. The isolate marks keep "+98…" from being flipped.
-  const who = <span className="font-semibold text-foreground">{`\u2066${m.from}\u2069`}</span>;
+  // With a name from the Host phone's contacts, the name leads and the number follows it.
+  const who = (
+    <>
+      {m.name && (
+        <span dir="auto" className="font-semibold text-foreground">
+          {m.name}{" "}
+        </span>
+      )}
+      <span className={m.name ? "" : "font-semibold text-foreground"}>{`\u2066${m.from}\u2069`}</span>
+    </>
+  );
   const time = <time>{when(m.at, props.now, lang)}</time>;
   const host = props.hostName && (
     <p dir="auto" className="font-semibold">
