@@ -23,6 +23,17 @@ export function App() {
   const [failed, setFailed] = useState(false);
   const [hosts, setHosts] = useState<PairedHost[]>([]);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  /**
+   * Reads the list again. Reads can finish out of order, and one started
+   * before a Host was removed must not put its messages back on the screen,
+   * so only the newest read is shown.
+   */
+  const reads = useRef(0);
+  const reload = async (source: Db) => {
+    const mine = ++reads.current;
+    const list = await source.messages();
+    if (mine === reads.current) setMessages(list);
+  };
   const [spam, setSpam] = useState<SpamSettings>(DEFAULT_SPAM);
   const spamRef = useRef(spam);
   spamRef.current = spam;
@@ -69,7 +80,7 @@ export function App() {
         onBridge: (bridge, isUp) =>
           setUp((prev) => (prev[`${host.id} ${bridge}`] === isUp ? prev : { ...prev, [`${host.id} ${bridge}`]: isUp })),
         onFresh: (fresh) => {
-          void db.messages().then(setMessages);
+          void reload(db);
           if (!document.hidden) return;
           // Advertising arrives quietly. It is listed under Spam and announces nothing.
           const wanted = fresh.filter((m) => !isSpam(m, spamRef.current));
@@ -235,7 +246,7 @@ export function App() {
             void takeBackAddress(SEED_BRIDGES, host);
             await db.removeHost(host.id);
             setHosts(await db.hosts());
-            setMessages(await db.messages());
+            await reload(db);
             setPanel(false);
           }}
           onPairAnother={() => {
@@ -244,6 +255,7 @@ export function App() {
           }}
           onDeleteMessages={async () => {
             await db.deleteMessages();
+            reads.current++;
             setMessages([]);
           }}
         />

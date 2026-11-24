@@ -171,7 +171,15 @@ export class Db {
   inboxFor(host: string) {
     return {
       has: async (id: string) => (await run<number>(this.db, MESSAGES, "readonly", (tx) => tx.objectStore(MESSAGES).count(id))) > 0,
-      put: async (message: Message) => void (await run(this.db, MESSAGES, "readwrite", (tx) => tx.objectStore(MESSAGES).put({ ...message, host }))),
+      // Only while the Host is still here. A collect that was on its way when
+      // the Host was removed must not bring its messages back.
+      put: async (message: Message) =>
+        void (await run(this.db, [HOSTS, MESSAGES], "readwrite", (tx) => {
+          const exists = tx.objectStore(HOSTS).count(host);
+          exists.onsuccess = () => {
+            if (exists.result > 0) tx.objectStore(MESSAGES).put({ ...message, host });
+          };
+        })),
     };
   }
 
