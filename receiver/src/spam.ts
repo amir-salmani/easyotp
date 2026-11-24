@@ -41,9 +41,11 @@ const DIGIT = "[0-9۰-۹٠-٩]";
  */
 const OPT_OUT = new RegExp(`لغو\\s*[=:：]?\\s*${DIGIT}{1,4}(?!${DIGIT})`);
 
-const LINK = /https?:\/\/|www\.|\b[a-z0-9-]+\.(ir|com|net|org|app|shop|co)\b/i;
+// ASCII lookarounds, not \b: the Host's Kotlin counts a Persian letter as part
+// of a word and JavaScript does not, and the two must agree.
+const LINK = /https?:\/\/|www\.|(?<![a-z0-9-])[a-z0-9-]+\.(ir|com|net|org|app|shop|co)(?![a-z0-9])/i;
 /** Words of a sale. None of them is trusted without a link beside it. */
-const OFFER = /تخفیف|جشنواره|فروش ویژه|قرعه.?کشی|جایزه|رایگان|هدیه|پیشنهاد ویژه|کد تخفیف|فرصت محدود|همین حالا بخر|\boff\b|%|٪/i;
+const OFFER = /تخفیف|جشنواره|فروش ویژه|قرعه.?کشی|جایزه|رایگان|هدیه|پیشنهاد ویژه|کد تخفیف|فرصت محدود|همین حالا بخر|(?<![a-z])off(?![a-z])|%|٪/i;
 
 /** Whether a message reads as advertising. Never true for one that carries a code. */
 export function looksLikeAd(m: Pick<Message, "body" | "code">): boolean {

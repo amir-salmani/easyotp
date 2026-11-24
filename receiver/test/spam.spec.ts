@@ -11,6 +11,10 @@ describe("the guess", () => {
     }
   });
 
+  it("finds a link glued to Persian text, as the Host does", () => {
+    expect(looksLikeAd(sms("تخفیف ویژه خریدازshop.ir"))).toBe(true);
+  });
+
   it("takes a sale with a link, and neither alone", () => {
     expect(looksLikeAd(sms("۵۰٪ تخفیف فقط امروز shop.example.ir/y"))).toBe(true);
     expect(looksLikeAd(sms("قبض شما آماده است: https://pay.example.ir/123"))).toBe(false);

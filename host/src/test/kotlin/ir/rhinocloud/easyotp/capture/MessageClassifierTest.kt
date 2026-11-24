@@ -137,4 +137,9 @@ class MessageClassifierTest {
         assertFalse(MessageClassifier.looksLikeAd("برداشت 2,500,000 ریال از حساب 1234\nمانده 10,000,000\n03/09 14:20"))
         assertFalse(MessageClassifier.looksLikeAd("لغو تراکنش شما انجام شد"))
     }
+
+    @Test
+    fun `a link glued to Persian text is found, as the Receiver finds it`() {
+        assertTrue(MessageClassifier.looksLikeAd("تخفیف ویژه خریدازshop.ir"))
+    }
 }

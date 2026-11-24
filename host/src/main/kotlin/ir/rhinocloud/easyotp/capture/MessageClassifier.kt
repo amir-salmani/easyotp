@@ -91,8 +91,10 @@ object MessageClassifier {
      * require it on bulk advertising, and nothing else carries it.
      */
     private val OPT_OUT = Regex("لغو\\s*[=:：]?\\s*[0-9]{1,4}(?![0-9])")
-    private val LINK = Regex("https?://|www\\.|\\b[a-z0-9-]+\\.(ir|com|net|org|app|shop|co)\\b")
-    private val OFFER = Regex("تخفیف|جشنواره|فروش ویژه|قرعه.?کشی|جایزه|رایگان|هدیه|پیشنهاد ویژه|کد تخفیف|فرصت محدود|همین حالا بخر|\\boff\\b|%|٪")
+    // ASCII lookarounds, not \\b: Java counts a Persian letter as part of a
+    // word and JavaScript does not, and the two sides must agree.
+    private val LINK = Regex("https?://|www\\.|(?<![a-z0-9-])[a-z0-9-]+\\.(ir|com|net|org|app|shop|co)(?![a-z0-9])")
+    private val OFFER = Regex("تخفیف|جشنواره|فروش ویژه|قرعه.?کشی|جایزه|رایگان|هدیه|پیشنهاد ویژه|کد تخفیف|فرصت محدود|همین حالا بخر|(?<![a-z])off(?![a-z])|%|٪")
 
     /**
      * Whether a message reads as advertising. The Host forwards it all the
