@@ -9,6 +9,7 @@ import { Install, isInstalled } from "./Install";
 import { Messages } from "./Messages";
 import { Pair } from "./Pair";
 import { Panel } from "./Panel";
+import { shell } from "./shell";
 import { Alert, Screen } from "./ui";
 
 /** A development build may be opened in a tab with ?preview. A released one never. */
@@ -63,12 +64,13 @@ export function App() {
           setUp((prev) => (prev[`${host.id} ${bridge}`] === isUp ? prev : { ...prev, [`${host.id} ${bridge}`]: isUp })),
         onFresh: (fresh) => {
           void db.messages().then(setMessages);
-          if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
-            const strings = STRINGS[langRef.current];
-            // Never the text of the SMS: a notification shows on a locked screen.
-            void navigator.serviceWorker?.ready.then((reg) =>
-              reg.showNotification(strings.notifyTitle(fresh[0]!.sim), { tag: "easyotp", icon: "/icons/icon-192.png" }),
-            );
+          if (!document.hidden) return;
+          // Never the text of the SMS: a notification shows on a locked screen.
+          const title = STRINGS[langRef.current].notifyTitle(fresh[0]!.sim);
+          if (shell) {
+            shell.notify(title);
+          } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            void navigator.serviceWorker?.ready.then((reg) => reg.showNotification(title, { tag: "easyotp", icon: "/icons/icon-192.png" }));
           }
         },
       }),

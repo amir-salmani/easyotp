@@ -2,6 +2,7 @@ import { Component, StrictMode, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import "./globals.css";
+import { shell } from "./shell";
 
 /**
  * If a screen throws while drawing, React removes everything and leaves a
@@ -36,6 +37,8 @@ createRoot(document.getElementById("root")!).render(
   </StrictMode>,
 );
 
-if ("serviceWorker" in navigator && import.meta.env.PROD) {
+// Inside the Android app the screens are already on the device, and a WebView
+// would not let a service worker read them anyway.
+if ("serviceWorker" in navigator && import.meta.env.PROD && !shell) {
   void navigator.serviceWorker.register("/sw.js");
 }

@@ -2,6 +2,7 @@ import { ChevronDown, ExternalLink, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PairedHost } from "./db";
 import type { Lang, Strings } from "./i18n";
+import { shell, SHELL_CHANGE } from "./shell";
 import { Button } from "./ui";
 
 const SOURCE = "https://github.com/amir-salmani/easyotp";
@@ -129,7 +130,15 @@ export function Panel(props: {
   const { t, lang } = props;
   const ref = useRef<HTMLDialogElement>(null);
   const [askingDelete, setAskingDelete] = useState(false);
-  const [notify, setNotify] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  type Permission = "granted" | "denied" | "default" | "unsupported";
+  const permission = (): Permission => (shell ? (shell.notifications() as Permission) : typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  const [notify, setNotify] = useState(permission);
+  // Inside the Android app the answer to "may I notify" comes back as an event.
+  useEffect(() => {
+    const refresh = () => setNotify(permission());
+    window.addEventListener(SHELL_CHANGE, refresh);
+    return () => window.removeEventListener(SHELL_CHANGE, refresh);
+  }, []);
 
   useEffect(() => {
     ref.current?.showModal();
@@ -191,7 +200,7 @@ export function Panel(props: {
           <div className="flex flex-col gap-2">
             <p className="font-semibold">{t.notifications}</p>
             {notify === "default" ? (
-              <Button variant="secondary" onClick={async () => setNotify(await Notification.requestPermission())}>
+              <Button variant="secondary" onClick={async () => (shell ? shell.askNotifications() : setNotify(await Notification.requestPermission()))}>
                 {t.notifyOn}
               </Button>
             ) : (
