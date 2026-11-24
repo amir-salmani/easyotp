@@ -7,6 +7,9 @@ import { BACK, CHANGE, type HostState, type Native, type Permission } from "./na
 import { HOST_STRINGS, type HostStrings } from "./strings";
 
 const LANG_KEY = "easyotp.host.lang";
+const AUTOSTART_KEY = "easyotp.host.autostart";
+const autostartDone = () => localStorage.getItem(AUTOSTART_KEY) === "done";
+const markAutostartDone = () => localStorage.setItem(AUTOSTART_KEY, "done");
 const SKIP_KEY = "easyotp.host.skipped";
 
 /** base64url to bytes. Written out here so the screens do not pull in the crypto library for it. */
@@ -145,7 +148,7 @@ export function HostApp({ native }: { native: Native }) {
 const Forward = ({ lang }: { lang: Lang }) => (lang === "fa" ? <ArrowLeft aria-hidden size={22} /> : <ArrowRight aria-hidden size={22} />);
 
 interface Step {
-  key: "consent" | Permission;
+  key: "consent" | Permission | "autostart";
   title: string;
   body: string;
   done: boolean;
@@ -170,6 +173,11 @@ function Setup(props: { t: HostStrings; lang: Lang; header: React.ReactNode; sta
     { key: "phone", title: t.phoneTitle, body: t.phoneBody, done: state.perms.phone, optional: false },
     { key: "notify", title: t.notifyTitle, body: t.notifyBody, done: state.perms.notify, optional: true },
     { key: "battery", title: t.batteryTitle, body: t.batteryBody, done: state.perms.battery, optional: true },
+    // Only on a phone whose maker hides an app-killer of its own. Android
+    // cannot say whether it was switched on, so the person says so.
+    ...(state.brand
+      ? [{ key: "autostart" as const, title: t.autostartTitle, body: t.autostartBody[state.brand] ?? "", done: autostartDone(), optional: true }]
+      : []),
   ];
   const at = steps.findIndex((s) => !s.done && !(s.optional && skipped.includes(s.key)));
   if (at < 0) return <>{props.children}</>;
@@ -200,7 +208,7 @@ function Setup(props: { t: HostStrings; lang: Lang; header: React.ReactNode; sta
         )}
       </Card>
       {/* Asked once already and still not granted: Android will not ask again by itself. */}
-      {step.key !== "consent" && asked.includes(step.key) && (
+      {step.key !== "consent" && step.key !== "autostart" && asked.includes(step.key) && (
         <>
           <Alert>{t.denied}</Alert>
           <Button variant="secondary" onClick={() => native.ask("settings")}>
@@ -209,7 +217,14 @@ function Setup(props: { t: HostStrings; lang: Lang; header: React.ReactNode; sta
         </>
       )}
       <div className="mt-auto flex flex-col gap-3">
-        {step.key === "consent" ? (
+        {step.key === "autostart" ? (
+          <>
+            <Button onClick={() => native.ask("autostart")}>{t.autostartOpen}</Button>
+            <Button variant="secondary" onClick={() => (markAutostartDone(), setAsked((a) => [...a]))}>
+              {t.autostartDone}
+            </Button>
+          </>
+        ) : step.key === "consent" ? (
           <Button disabled={!agreed} onClick={() => native.setConsent(true)}>
             {t.next}
             <Forward lang={lang} />
@@ -504,6 +519,14 @@ function HostPanel(props: {
               </li>
             ))}
           </ul>
+          {state.brand && (
+            <div className="flex min-h-12 items-center justify-between gap-3 rounded-lg border border-border bg-card px-4 py-2">
+              <span>{t.autostartRow}</span>
+              <button onClick={() => native.ask("autostart")} className="min-h-10 rounded-lg bg-secondary px-3 font-semibold text-secondary-foreground">
+                {t.autostartOpen}
+              </button>
+            </div>
+          )}
           <Button variant="secondary" onClick={() => native.ask("settings")}>
             {t.openSettings}
           </Button>
@@ -542,6 +565,8 @@ function HostPanel(props: {
 
         <p className="text-center text-muted-foreground" dir="auto">
           {t.version(state.version)}
+          {/* Screens change without a new APK (D32), so they are dated separately. */}
+          {state.screens ? ` · ${t.screens(new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "short", timeStyle: "short" }).format(state.screens * 1000))}` : ""}
         </p>
           </>
         )}

@@ -56,6 +56,10 @@ class HostApi(private val activity: MainActivity) {
         val pair = session
         return JSONObject()
             .put("version", versionName())
+            // Which copy of the screens is showing: fetched ones carry their own version (D32).
+            .put("screens", activity.screensVersion)
+            // A maker whose phones hide a second app-killer, or null (see BrandSetup).
+            .put("brand", BrandSetup.brand() ?: JSONObject.NULL)
             .put("label", label())
             .put("consent", settings.consent)
             .put("calls", settings.calls)
@@ -112,6 +116,10 @@ class HostApi(private val activity: MainActivity) {
                     arrayOf(Manifest.permission.READ_CALL_LOG, Manifest.permission.ANSWER_PHONE_CALLS), 5,
                 )
                 "contacts" -> activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), 6)
+                "autostart" -> BrandSetup.open(
+                    activity,
+                    Intent(AndroidSettings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}")),
+                )
                 // Android shows its own yes-or-no question for this one.
                 "battery" -> activity.startActivity(
                     Intent(AndroidSettings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${context.packageName}")),
@@ -252,6 +260,12 @@ class HostApi(private val activity: MainActivity) {
     fun stopRing() {
         Buzzer.silence(context)
         context.getSystemService(android.app.NotificationManager::class.java)?.cancel(ForwarderService.RING_NOTIFICATION_ID)
+    }
+
+    /** The screens drew. Fetched screens are kept only after this (see Screens). */
+    @JavascriptInterface
+    fun ready() {
+        activity.drew = true
     }
 
     /** Leaves the app, when the page has nothing left for Back to close. */

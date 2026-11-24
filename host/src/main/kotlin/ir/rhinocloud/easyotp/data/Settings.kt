@@ -99,6 +99,16 @@ class Settings(
         fresh
     }
 
+    /** The version of the signed list the bridges came from, or 0 for the seed list (DECISIONS D32). */
+    val bridgesVersion: Long
+        get() = read().optLong(KEY_BRIDGES_VERSION, 0L)
+
+    /** Replaces the bridges with a signed list, keeping its version so an older one is never taken. */
+    fun setBridges(list: List<Bridge>, version: Long) = mutate {
+        put(KEY_BRIDGES, JSONArray().apply { list.forEach { put(JSONObject().put("id", it.id).put("baseUrl", it.baseUrl)) } })
+        put(KEY_BRIDGES_VERSION, version)
+    }
+
     /** What Receivers see this phone called. Part of the pairing picture. */
     var hostLabel: String
         get() = read().optString(KEY_LABEL)
@@ -242,6 +252,7 @@ class Settings(
 
         private const val KEY_BLOB = "sealed"
         private const val KEY_BRIDGES = "bridges"
+        private const val KEY_BRIDGES_VERSION = "bridgesVersion"
         private const val KEY_RECEIVERS = "receivers"
         private const val KEY_LABEL = "hostLabel"
         private const val KEY_CONSENT = "consent"

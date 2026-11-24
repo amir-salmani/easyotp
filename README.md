@@ -25,12 +25,11 @@ own devices can read them.
 
 ### Status
 
-**It works end to end, and has not yet run on a real phone.** Both bridges are
-live. The Receiver web app is live and has been used on an iPhone. The Host app
-pairs, forwards SMS, reports on itself and rings when asked; that was checked
-on an Android emulator against the live bridges, with a simulated SMS. What is
-left before anyone should rely on it is a real SIM in a real phone, left alone
-for days. No release has been published yet.
+**It works on a real phone.** On 2026-11-24 the Host ran on a phone with two
+Iranian SIMs and the Receiver web app on an iPhone: pairing, forwarding SMS,
+the phone's status, ringing it, answering an SMS, declining a call, and
+contact names all worked. Both bridges are live. What is left before anyone
+should rely on it is a phone left alone for days, and the first release.
 [`docs/STATUS.md`](docs/STATUS.md) has the detail.
 
 <p>
@@ -46,10 +45,9 @@ for days. No release has been published yet.
 | **Receiver** (web app) | any phone or computer | Shows the messages. You add it to your home screen once |
 | **Receiver** (Android) | an Android phone | The same screens, with native notifications. It asks for no SMS permission |
 
-The Host is meant to be installed once. Its screens are web pages kept apart
-from its small native core, so that they can later be updated without a new
-APK. Today they ship inside the APK, and that update path is designed but not
-built.
+The Host is installed once. Its screens and its list of bridges arrive later
+through the bridges themselves, signed, and the phone checks the signature
+before using them. A new APK is needed only if its small native core changes.
 
 ### How it works
 
@@ -70,6 +68,15 @@ A bridge is a relay that holds sealed bytes until a Receiver collects them. It
 has no key, so it cannot read a message, and neither can any network in between.
 There are two bridges today, in two countries under two operators, and the apps
 learn about new ones from a signed list.
+
+### What else it does
+
+| | |
+|---|---|
+| **The phone's health** | The Receiver shows whether the phone at home is alive, its battery and network, and can make it ring so someone nearby plugs it in |
+| **Spam** | Advertising is set aside in its own list, and can be unsubscribed from in one tap. A message with a code is never set aside automatically |
+| **Answers and calls** | If the phone's owner allows it, a Receiver can answer an SMS from that SIM, see who is calling, and decline a call with a message. Only to numbers that contacted the SIM, at most twenty a day, and every one is shown to everyone |
+| **Woken when closed** | With notifications on, the Receiver web app is told a message arrived even while closed. The notification carries nothing of the message |
 
 ### Pairing
 
@@ -146,12 +153,11 @@ publish their changes too.
 
 ### وضعیت
 
-**از سر تا ته کار می‌کند، ولی هنوز روی گوشی واقعی اجرا نشده است.** هر دو پل
-راه افتاده‌اند. وب‌اپ گیرنده در دسترس است و روی آیفون امتحان شده. برنامهۀ
-فرستنده جفت می‌شود، پیامک را می‌فرستد، از وضع خودش خبر می‌دهد و هر وقت بخواهید
-زنگ می‌زند. این‌ها روی شبیه‌ساز اندروید و با پل‌های واقعی و یک پیامک ساختگی
-آزمایش شده‌اند. چیزی که مانده، یک سیم‌کارت واقعی در یک گوشی واقعی است که چند
-روز به حال خودش رها شود. هنوز نسخه‌ای منتشر نشده است. جزئیات در
+**روی گوشی واقعی کار می‌کند.** روز ۳ آذر ۱۴۰۵ برنامه‌ی فرستنده روی گوشی‌ای با
+دو سیم‌کارت ایرانی و وب‌اپ گیرنده روی آیفون آزمایش شد: جفت شدن، رسیدن پیامک،
+وضعیت گوشی، زنگ زدن، پاسخ دادن به پیامک، رد کردن تماس و نام مخاطب‌ها همه کار
+کرد. هر دو پل راه افتاده‌اند. پیش از آن‌که کسی به آن تکیه کند، باید گوشی چند
+روز به حال خودش رها شود و اولین نسخه منتشر شود. جزئیات در
 [`docs/STATUS.md`](docs/STATUS.md) آمده است.
 
 ### چه چیزی نصب می‌کنید
@@ -162,10 +168,9 @@ publish their changes too.
 | **گیرنده** (وب‌اپ) | هر گوشی یا رایانه | پیام‌ها را نشان می‌دهد. یک بار آن را به صفحهۀ اصلی اضافه می‌کنید |
 | **گیرنده** (اندروید) | گوشی اندرویدی | همان صفحه‌ها، با اعلان خود اندروید. هیچ دسترسی‌ای به پیامک نمی‌خواهد |
 
-قرار است فرستنده یک بار نصب شود. صفحه‌هایش صفحه‌های وب‌اند و از هستهۀ کوچک
-برنامه جدا نگه داشته شده‌اند تا بعداً بدون نصب دوباره به‌روز شوند. امروز این
-صفحه‌ها درون خود فایل نصب قرار دارند و آن راه به‌روزرسانی طراحی شده ولی ساخته
-نشده است.
+فرستنده یک بار نصب می‌شود. صفحه‌ها و فهرست پل‌هایش بعداً از طریق خود پل‌ها و
+با امضا می‌رسند و گوشی پیش از استفاده امضا را بررسی می‌کند. فقط وقتی هسته‌ی
+کوچک برنامه تغییر کند، نصب دوباره لازم است.
 
 ### چطور کار می‌کند
 
@@ -181,6 +186,15 @@ publish their changes too.
 کلیدی ندارد، پس نمی‌تواند پیام را بخواند. شبکه‌های بین راه هم نمی‌توانند. امروز
 دو پل وجود دارد، در دو کشور و زیر دست دو گردانندهۀ جدا. برنامه‌ها پل‌های تازه را
 از فهرستی امضاشده می‌شناسند.
+
+### کارهای دیگر
+
+| | |
+|---|---|
+| **سلامت گوشی** | گیرنده نشان می‌دهد گوشی خانه روشن است یا نه، باتری و اینترنتش چطور است، و می‌تواند آن را به زنگ بیندازد تا کسی که نزدیک آن است به شارژش بزند |
+| **هرزنامه** | پیامک‌های تبلیغاتی در فهرست جدایی می‌روند و با یک ضربه می‌شود اشتراکشان را لغو کرد. پیامی که کد دارد هیچ‌وقت خودکار جدا نمی‌شود |
+| **پاسخ و تماس** | اگر صاحب گوشی اجازه بدهد، گیرنده می‌تواند از همان سیم‌کارت به پیامک پاسخ بدهد، ببیند چه کسی زنگ می‌زند و تماس را با یک پیامک رد کند. فقط به شماره‌ای که خودش با آن سیم‌کارت تماس گرفته، روزی حداکثر بیست پیامک، و هر پیامک به همه نشان داده می‌شود |
+| **بیدار شدن با برنامه‌ی بسته** | با اعلان روشن، وب‌اپ گیرنده حتی وقتی بسته است هم خبر می‌گیرد که پیامی آمده. خود اعلان چیزی از پیام ندارد |
 
 ### جفت‌کردن
 

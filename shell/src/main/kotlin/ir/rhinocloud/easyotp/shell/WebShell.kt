@@ -45,6 +45,8 @@ class WebShell(
     private val onGone: () -> Unit,
     /** A link that leads out of the app, for the caller to hand to a browser. Null drops such links. */
     private val onExternalLink: ((Uri) -> Unit)? = null,
+    /** Serve from this directory instead of the APK's assets: screens fetched later (DECISIONS D32). */
+    private val directory: java.io.File? = null,
 ) {
 
     @SuppressLint("SetJavaScriptEnabled") // The screens are this app's own, read from its own APK.
@@ -121,7 +123,8 @@ class WebShell(
     private fun serve(url: Uri, startPage: String): WebResourceResponse {
         val path = assetPath(url.path, startPage) ?: return refused()
         val bytes = try {
-            context.assets.open("$assetRoot/$path").use { it.readBytes() }
+            if (directory != null) java.io.File(directory, path).readBytes()
+            else context.assets.open("$assetRoot/$path").use { it.readBytes() }
         } catch (e: Exception) {
             return WebResourceResponse("text/plain", "utf-8", 404, "Not Found", emptyMap(), ByteArrayInputStream(ByteArray(0)))
         }

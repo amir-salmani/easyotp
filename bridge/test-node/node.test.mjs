@@ -130,3 +130,18 @@ test("takes no push address, and so never calls out", async () => {
     await stop(child);
   }
 });
+
+test("refuses a flood of deposits to one box, and not to another", async () => {
+  const child = await start();
+  try {
+    const { url } = newBox();
+    const answers = [];
+    for (let i = 0; i < 32; i++) answers.push((await post(url, sealed())).status);
+    assert.ok(answers.slice(0, 30).every((s) => s === 200));
+    assert.deepEqual(answers.slice(30), [429, 429]);
+    assert.equal((await post(newBox().url, sealed())).status, 200);
+  } finally {
+    await stop(child);
+  }
+});
+

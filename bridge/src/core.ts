@@ -13,17 +13,29 @@
  *   DELETE /v2/box/<boxId>/push take it back                    (the Receiver)
  *   POST /v2/pair/<slotId>      add a pairing message           (either side)
  *   GET  /v2/pair/<slotId>      read pairing messages, waiting  (either side)
+ *   GET  /v2/dist/<name>        a file the Host trusts once it has checked its signature
  *   GET  /health
  */
 import { LIMITS, type Sealed } from "./box";
 import { boxIdFrom, KEY_SHAPE, timingSafeEqual } from "./ids";
 import { boxTag, log } from "./log";
 import { endpointOk } from "./push";
+// Signed on the maintainer's machine and served as they are (DECISIONS D32).
+// The bridge holds no key for them and could not change one undetected.
+import distIndex from "../dist-files/index.json";
+import distBridges from "../dist-files/bridges.json";
+import distHostUi from "../dist-files/host-ui.json";
+
+const DIST: Record<string, string> = {
+  index: JSON.stringify(distIndex),
+  bridges: JSON.stringify(distBridges),
+  "host-ui": JSON.stringify(distHostUi),
+};
 import { SLOT_LIMITS, type SlotView } from "./slot";
 
 export interface BoxStore {
   /** @param notify whether a closed Receiver should be told; false for a report or an advertisement. */
-  deposit(boxId: string, m: Sealed, notify: boolean): Promise<"stored" | "duplicate" | "full">;
+  deposit(boxId: string, m: Sealed, notify: boolean): Promise<"stored" | "duplicate" | "full" | "limited">;
   collect(boxId: string, holdMs: number): Promise<Sealed[]>;
   ack(boxId: string, ids: string[]): Promise<number>;
 }
@@ -119,6 +131,13 @@ async function deposit(req: Request, store: BoxStore, boxId: string): Promise<Re
   // what reads as advertising as quiet. Neither is worth waking anyone for.
   const notify = tag === undefined && quiet !== true;
   const outcome = await store.deposit(boxId, { id, enc, ct, at: Date.now(), ...(tag ? { tag } : {}) }, notify);
+  if (outcome === "limited") {
+    // Too many deposits to this box this minute. A 429 is the bridge's
+    // answer, not the message's: a Host counts it against this bridge and
+    // tries again later, as it would after a 5xx.
+    log({ route: "deposit", outcome: "rejected", reason: "rate_limited", status: 429, box: boxTag(boxId) });
+    return json({ error: "rate_limited" }, 429);
+  }
   if (outcome === "full") {
     // The bridge is out of room, which is the bridge's fault and not the
     // message's. 507 tells the Host to count it against this bridge.
@@ -204,6 +223,14 @@ export async function handle(req: Request, store: Store, cfg: Config): Promise<R
 
   // Asked by every Host about every bridge. Must depend on nothing.
   if (path === "/health") return json({ ok: true });
+
+  const dist = path.match(/^\/v2\/dist\/([a-z-]{1,16})$/);
+  if (dist) {
+    const body = DIST[dist[1]!];
+    if (req.method !== "GET" || body === undefined) return json({ error: "not_found" }, 404);
+    // Signed, so a cache in front of the bridge may keep it for a while.
+    return new Response(body, { headers: { ...HEADERS, "cache-control": "public, max-age=300" } });
+  }
 
   const pair = path.match(/^\/v2\/pair\/([A-Za-z0-9_-]{43})$/);
   const box = path.match(/^\/v2\/box\/([A-Za-z0-9_-]{43})(\/ack|\/push)?$/);

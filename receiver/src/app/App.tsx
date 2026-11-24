@@ -23,6 +23,14 @@ export function App() {
   const [failed, setFailed] = useState(false);
   const [hosts, setHosts] = useState<PairedHost[]>([]);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  /** Whether a bridge holds this device's address for every Host. Null until it has been tried. */
+  const [wakes, setWakes] = useState<boolean | null>(null);
+  const [hidden, setHidden] = useState(() => document.hidden);
+  useEffect(() => {
+    const changed = () => setHidden(document.hidden);
+    document.addEventListener("visibilitychange", changed);
+    return () => document.removeEventListener("visibilitychange", changed);
+  }, []);
   /**
    * Reads the list again. Reads can finish out of order, and one started
    * before a Host was removed must not put its messages back on the screen,
@@ -65,8 +73,13 @@ export function App() {
   // One collector per Host, each on its own box. Restarted only when the set
   // of boxes changes, so renaming a Host does not interrupt anything.
   const boxes = hosts.map((h) => h.boxId).join(" ");
+  //
+  // Once a bridge can wake this device, an app nobody is looking at stops
+  // waiting at the bridges: a held request is what bridge 2 is billed for, by
+  // the second (BRIDGES). It collects again the moment it is shown.
+  const resting = hidden && wakes === true;
   useEffect(() => {
-    if (!db || hosts.length === 0) return;
+    if (!db || hosts.length === 0 || resting) return;
     const stops = hosts.map((host) =>
       watch({
         bridges: SEED_BRIDGES,
@@ -102,7 +115,7 @@ export function App() {
     );
     return () => stops.forEach((stop) => stop());
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [db, boxes]);
+  }, [db, boxes, resting]);
 
   const changeSpam = (next: SpamSettings) => {
     setSpam(next);
@@ -125,8 +138,6 @@ export function App() {
   // can be woken. Done at every start, because a bridge forgets an address
   // that is not renewed, and again whenever the set of Hosts changes.
   const [notifyTick, setNotifyTick] = useState(0);
-  /** Whether a bridge holds this device's address for every Host. Null until it has been tried. */
-  const [wakes, setWakes] = useState<boolean | null>(null);
   useEffect(() => {
     if (!db || hosts.length === 0 || shell || !pushSupported() || Notification.permission !== "granted") return;
     let stale = false;

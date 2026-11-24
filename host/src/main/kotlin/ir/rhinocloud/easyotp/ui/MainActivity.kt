@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.Bundle
 import android.webkit.WebView
 import android.window.OnBackInvokedDispatcher
+import ir.rhinocloud.easyotp.dist.DistUpdater
+import ir.rhinocloud.easyotp.dist.Screens
 import ir.rhinocloud.easyotp.service.ForwarderService
 import ir.rhinocloud.easyotp.service.HostEvents
 import ir.rhinocloud.easyotp.shell.WebShell
@@ -18,15 +20,38 @@ class MainActivity : Activity() {
 
     private lateinit var web: WebView
 
+    /** The fetched screens this window is showing, or null for the APK's own. */
+    private var trying: java.io.File? = null
+
+    /** The version of the screens this window shows, fetched or built in. */
+    val screensVersion: Long
+        get() = trying?.name?.toLongOrNull() ?: Screens.builtIn(this)
+
+    /** Set by the page through HostApi.ready. */
+    @Volatile
+    var drew = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         web = WebView(this)
         // If Android kills the page's process, this window starts again.
-        val shell = WebShell(this, assetRoot = "ui", network = false, onGone = ::recreate)
+        // Newer screens fetched from the bridges, if there are any and they have not failed.
+        trying = Screens.fetched(this)
+        val shell = WebShell(this, assetRoot = "ui", network = false, onGone = ::recreate, directory = trying)
         setContentView(shell.frame(web))
         web.addJavascriptInterface(HostApi(this), "EasyOtpNative")
         shell.attach(web, "host.html")
         HostEvents.listen(onChange)
+        trying?.let { dir ->
+            // They must say they drew. If not, they are not tried again, and
+            // this window opens once more with the screens the APK carries.
+            web.postDelayed({
+                if (!drew) {
+                    Screens.failed(this, dir.name.toLong())
+                    recreate()
+                }
+            }, DRAW_MILLIS)
+        }
         // The page decides what Back means: close what is open, or leave.
         // From Android 13 a back gesture is delivered only this way.
         if (Build.VERSION.SDK_INT >= 33) {
@@ -39,6 +64,10 @@ class MainActivity : Activity() {
         // Opening the app is the one moment Android always lets the service
         // start, so it is also the repair for a service that was stopped.
         ForwarderService.wake(this)
+        // Someone has the app open: look for newer screens and bridges, at
+        // most every few hours. Here and not only in the service, which does
+        // not run at all on a phone nobody is paired to yet.
+        DIST.execute { runCatching { DistUpdater(applicationContext).runIfDue() } }
         // The person may be coming back from a permission screen.
         changed()
     }
@@ -72,5 +101,7 @@ class MainActivity : Activity() {
 
     private companion object {
         const val BACK = "easyotp:back"
+        const val DRAW_MILLIS = 8_000L
+        val DIST: java.util.concurrent.ExecutorService = java.util.concurrent.Executors.newSingleThreadExecutor()
     }
 }

@@ -497,6 +497,9 @@ cached, so a screen never depends on the network.
 compiled into the APK before loading it. A bridge can withhold an update; it
 cannot alter one.
 
+**Built (D32):** the signed bundle and the signed bridge list, both checked
+against a key compiled into the APK, with a fallback to the APK's own screens.
+
 **Escape hatch:** the core can install a new APK of itself, signed with the same
 release key. It is dormant by default and exists for a security fix in the core.
 Whether Android 12+ really allows this with no prompt is **unverified** and must
@@ -940,3 +943,48 @@ declined with a message, a missed call reported. **Unverified on hardware:**
 which SIM a call is attributed to on a dual-SIM phone, ending a call on each
 manufacturer's Android, and whether a sideloaded install is allowed these
 permissions without the "restricted settings" step.
+
+---
+
+## D32 — The bridge list and the Host's screens arrive signed, through the bridges (2026-11-24)
+
+**Chosen:** two files, signed with an Ed25519 key that exists only in the
+maintainer's secrets store, served by every bridge at `/v2/dist/<name>` with
+an index of their versions. The Host fetches them when its app is opened and
+every few hours on its status alarm, takes a file only if its signature
+checks against the key compiled into the APK and its version is newer, and:
+
+| File | What the Host does with it |
+|---|---|
+| `bridges` | replaces its bridge list; listeners and deposits move to the new list |
+| `host-ui` | unpacks it beside the APK's own screens and shows it from the next time the window opens |
+
+The signature covers the kind and the version as well as the bytes, so a
+bridge can withhold a file but not change one, pass one off as the other, or
+serve an old one as new.
+
+**Screens that do not draw are dropped.** A fetched copy must tell the Host
+it drew within eight seconds of opening. If it does not, it is marked failed,
+never tried again, and the window opens with the APK's own screens. Screens
+also say which version of the native interface they need (`CORE`); a Host
+with an older one keeps its own.
+
+**Signing happens on one machine.** `npm run sign-dist`, under `sops
+exec-env`. Never in CI: a key there is a key on GitHub. Publishing is then a
+commit and a deploy of the bridges.
+
+**Rejected:** a server of its own for updates; unsigned files trusted because
+they came over HTTPS from a bridge; signing in CI.
+
+**Why:** D17 and D19 promised that a phone installed once in Iran keeps
+working when a bridge is added or a screen is improved. Through the bridges,
+because they are the one thing a Host can already reach; signed, because a
+bridge is not trusted with what a phone runs.
+
+**Costs:** a bundle is about 300 KB in every bridge's code, and a lost key
+means a new APK for every phone. The key's notes say so where it is kept.
+
+**Seen on an emulator:** an APK built with the old screens took the newer ones
+from the live bridge and showed them after reopening. **Not yet seen:** a
+fetched copy failing to draw and being dropped; the Receiver's Android app
+getting the same, which it does not yet do.

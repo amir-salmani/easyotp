@@ -6,6 +6,8 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci --ignore-scripts
 COPY src ./src
+# The signed files a Host fetches (DECISIONS D32), bundled into the server.
+COPY dist-files ./dist-files
 RUN npm run build:node
 
 FROM node:22-alpine

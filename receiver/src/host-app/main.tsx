@@ -23,3 +23,6 @@ root.render(
     )}
   </StrictMode>,
 );
+
+// Drawn: a Host trying screens it fetched keeps them only once it hears this.
+requestAnimationFrame(() => native?.ready?.());
