@@ -28,6 +28,11 @@
   "vars": {
     // A Durable Object is billed for the time a request is held open, so the
     // hold here is shorter than on bridge 1.
-    "POLL_HOLD_SECONDS": "25"
+    "POLL_HOLD_SECONDS": "25",
+    // The public half of the push signing key (DECISIONS D30). The Receiver
+    // carries the same value. The private half is the secret VAPID_PRIVATE_JWK.
+    "VAPID_PUBLIC_KEY": "BLmXanjp4rwi6T8Ri5hMKukG6Lcads7FZ8anl_Vi4DoVeNPgH0FAvCYkwXGdaGeyv_q0-2TIB_Tvz8deXCUpMgk",
+    // Who a push service may contact about this application. A place, not a person.
+    "VAPID_SUBJECT": "https://github.com/amir-salmani/easyotp"
   }
 }

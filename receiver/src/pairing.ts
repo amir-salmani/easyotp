@@ -59,7 +59,9 @@ const utf8 = (s: string) => new TextEncoder().encode(s);
 const encode = (m: Wire) => b64url(utf8(JSON.stringify(m)));
 /** Names are shown to a person, so they are short and carry no control characters. */
 const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f\\u2028\\u2029]", "g");
-const cleanLabel = (x: unknown) => (typeof x === "string" ? x.replace(CONTROL, "").slice(0, MAX_LABEL) : "");
+/** Cutting at a fixed length can leave half of an emoji, which the two sides would then encode differently. */
+const HALF = /[\uD800-\uDBFF]$/;
+export const cleanLabel = (x: unknown) => (typeof x === "string" ? x.replace(CONTROL, "").slice(0, MAX_LABEL).replace(HALF, "") : "");
 
 function decode(data: string): Wire | null {
   try {
@@ -103,6 +105,7 @@ class Channel {
   private cursors = new Map<string, number>();
   private epochs = new Map<string, number>();
   private abort = new AbortController();
+  private finished = false;
   private fetch: Fetch;
 
   constructor(
@@ -117,11 +120,21 @@ class Channel {
   }
 
   get closed(): boolean {
-    return this.abort.signal.aborted;
+    return this.finished || this.abort.signal.aborted;
   }
 
-  /** Stops everything in flight. Nothing is sent after this. */
+  /**
+   * The pairing is over. Nothing more is sent or read, but a poll already
+   * waiting at a bridge is left to run out by itself rather than cut. Cutting
+   * it buys nothing, and in Node it leaves the connection to a bridge on
+   * Cloudflare unable to carry the next request.
+   */
   close(): void {
+    this.finished = true;
+  }
+
+  /** The person gave up. Everything in flight is cut at once. */
+  cancel(): void {
     this.abort.abort();
   }
 
@@ -138,7 +151,7 @@ class Channel {
       if (!res.ok) throw new Error();
     };
     await Promise.any(this.bridges.map(post)).catch(() => {
-      throw new PairingError(this.closed ? "cancelled" : "unreachable");
+      throw new PairingError(this.abort.signal.aborted ? "cancelled" : "unreachable");
     });
   }
 
@@ -191,20 +204,25 @@ class Channel {
  * Every field on its own line, so no two different sets of fields can produce
  * the same bytes. Names are base64, so a name cannot contain a line break.
  */
-async function pictureOf(f: {
+export interface SasFields {
   code: string; hostNonce: string; receiverNonce: string; pk: string; box: string;
   oneTimeKey: string; hostLabel: string; receiverLabel: string;
-}): Promise<Picture> {
+}
+
+/** The bytes both pictures are drawn from. The Host app computes the same in `PairCodec.sas`. */
+export async function sasOf(f: SasFields): Promise<Uint8Array> {
   const lines = [
     "easyotp/pair-sas/v2", f.code, f.hostNonce, f.receiverNonce, f.pk, f.box, f.oneTimeKey,
     b64url(utf8(f.hostLabel)), b64url(utf8(f.receiverLabel)),
   ];
-  return pictureFrom(await sha256(lines.join("\n")));
+  return sha256(lines.join("\n"));
 }
 
-const commitmentOf = async (hostNonce: string) => b64url(await sha256("easyotp/pair-commit/v1", fromB64url(hostNonce)));
+const pictureOf = async (f: SasFields): Promise<Picture> => pictureFrom(await sasOf(f));
+
+export const commitmentOf = async (hostNonce: string) => b64url(await sha256("easyotp/pair-commit/v1", fromB64url(hostNonce)));
 /** Which offer a reveal answers, so a reveal left over from another attempt is ignored. */
-const offerId = async (offer: Offer) => b64url(await sha256("easyotp/pair-offer/v1", `${offer.enc}\n${offer.ct}`));
+export const offerId = async (offer: { enc: string; ct: string }) => b64url(await sha256("easyotp/pair-offer/v1", `${offer.enc}\n${offer.ct}`));
 
 export interface ReceiverOffer {
   publicKey: string;
@@ -262,8 +280,8 @@ export async function pairAsReceiver(opts: {
   if (!CODE_SHAPE.test(opts.code)) throw new PairingError("bad_code");
   const timeout = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const channel = new Channel(opts.bridges, await slotIdFrom(opts.code), "receiver", opts.fetch ?? fetch);
-  opts.signal?.addEventListener("abort", () => channel.close());
-  if (opts.signal?.aborted) channel.close();
+  opts.signal?.addEventListener("abort", () => channel.cancel());
+  if (opts.signal?.aborted) channel.cancel();
   try {
     // The commitment must be in hand before this side says anything.
     const commit = await channel.waitFor((m) => (m.t === "commit" ? m : null), timeout);

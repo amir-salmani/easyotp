@@ -34,6 +34,22 @@ export interface Message {
   code: string | null;
   /** When the phone received the SMS, in milliseconds. */
   at: number;
+  /**
+   * Absent for an SMS. "call" while the Host's phone rings, "missed" for a
+   * call nobody took, "sent" for an SMS the phone sent because a Receiver
+   * asked (DECISIONS D31). For "sent", `from` is who it was sent to.
+   */
+  kind?: "call" | "missed" | "sent";
+  /** Which SIM, as the Host knows it. A reply names it so the phone sends from the same line. */
+  simKey?: string;
+  /** For "sent": whether the phone handed it to the network. */
+  ok?: boolean;
+  /** For "sent" that was refused or failed: a code from the Host's closed list. */
+  why?: string;
+  /** For "sent": the name of the Receiver that asked. */
+  by?: string;
+  /** What the Host phone's owner calls `from` in their contacts, if they let names be sent. */
+  name?: string;
 }
 
 /**
@@ -57,6 +73,8 @@ export interface Status {
   pending: number;
   /** The command this report answers, if it answers one. */
   ack?: string;
+  /** What this Receiver may ask for beyond ringing: "sms" to send, "calls" to decline. */
+  can?: string[];
 }
 
 /** Something a Receiver asks a Host to do. Sealed to a key only paired Receivers were given. */
@@ -65,8 +83,18 @@ export interface Command {
   k: "cmd";
   id: string;
   at: number;
-  /** `buzz`: ring and vibrate, so someone nearby notices the phone. `ping`: report now. */
-  cmd: "buzz" | "ping";
+  /**
+   * `buzz`: ring and vibrate, so someone nearby notices the phone. `hush`:
+   * stop ringing. `ping`: report now. A Host that does not know a command
+   * ignores it, so a new one can be added without breaking an old phone.
+   */
+  cmd: "buzz" | "ping" | "hush" | "sms" | "decline";
+  /** For `sms`: who to send to. */
+  to?: string;
+  /** For `sms`, and for `decline` when the caller should be told why. */
+  text?: string;
+  /** For `sms`: the SIM to send from, as a message's `simKey` named it. */
+  sim?: string;
 }
 
 export class OpenError extends Error {}
@@ -125,7 +153,7 @@ function isStatus(x: unknown): x is Status {
 function isCommand(x: unknown): x is Command {
   if (typeof x !== "object" || x === null) return false;
   const c = x as Record<string, unknown>;
-  return c.v === 2 && c.k === "cmd" && typeof c.id === "string" && typeof c.at === "number" && Number.isFinite(c.at) && (c.cmd === "buzz" || c.cmd === "ping");
+  return c.v === 2 && c.k === "cmd" && typeof c.id === "string" && typeof c.at === "number" && Number.isFinite(c.at) && ["buzz", "ping", "hush", "sms", "decline"].includes(c.cmd as string);
 }
 
 /**

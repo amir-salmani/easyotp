@@ -46,6 +46,12 @@ are sealed with a Keystore key, and nothing is included in backups.
 can. Its private key cannot be taken back; the remedy is to remove that Receiver
 at the Host and pair again.
 
+With sending switched on for that Receiver (D31), they can also write as the
+SIM's owner: only to a number that contacted the SIM in the last thirty days,
+at most twenty times a day, and every one is shown to the other Receivers.
+With calls switched on, they see who rings and can end a ringing call. Both
+are off by default and switched off again on the Host.
+
 **A5. Someone who learns a Receiver's public key and box id.** Can seal a
 message that opens on that Receiver and deposit it: a false message, such as a
 fake code prompt. Cannot read anything. HPKE base mode is public-key encryption
@@ -66,6 +72,14 @@ it, one that renames a side and one that changes the nonce.
 **A7. A replayed or duplicated message.** A bridge can deliver the same sealed
 message again. The Receiver shows a message once per id, and refuses a message
 whose id in the seal differs from the id it was delivered under.
+
+**A9. A push service** (Apple, Google or Mozilla, whichever the Receiver's
+browser uses). Only if the Receiver's owner turns notifications on (D30). It
+then learns that this device was woken and when, which is when a message
+arrived. It receives no content: the push is empty, and there is nothing in it
+to decrypt. The bridge that sends it learns which push address belongs to which
+box, and from a Host one more bit per message: whether it was marked as not
+worth waking anyone for. With notifications off, none of this exists.
 
 **A8. A forged update.** Screens and configuration are code and data that reach
 the phone through bridges. They are signed, and the core verifies the signature
@@ -102,7 +116,8 @@ Each is a test or a property of the build, not an intention.
 
 The product forwards messages from SIM cards the operator physically holds.
 Where a SIM belongs to someone else, which is the household case this was built
-for, the Host records an explicit acknowledgement per SIM before it forwards
-anything from it. That is a product requirement, not legal advice: countries
+for, the Host records the owner's explicit acknowledgement before it captures
+or forwards anything, and lets each Receiver be limited to particular SIMs
+(D27). That is a product requirement, not legal advice: countries
 differ on intercepting another person's messages. Sold commercially, this needs
 review under Finnish and EU law first.

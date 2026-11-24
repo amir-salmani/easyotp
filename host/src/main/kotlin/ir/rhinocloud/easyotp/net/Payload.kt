@@ -21,6 +21,22 @@ data class Payload(
     val code: String?,
     /** When the phone received the SMS, in milliseconds. */
     val at: Long,
+    /**
+     * Absent for an SMS. "call" while the phone rings, "missed" for a call
+     * nobody took, "sent" for an SMS this phone sent because a Receiver asked
+     * (DECISIONS D31). For "sent", [from] is who it was sent to.
+     */
+    val kind: String? = null,
+    /** Which SIM, as the Host knows it, so a reply can name the SIM to send from. */
+    val simKey: String? = null,
+    /** For "sent": whether the phone handed it to the network. */
+    val ok: Boolean? = null,
+    /** For "sent" that was refused or failed: a code from a closed list, never free text. */
+    val why: String? = null,
+    /** For "sent": the name of the Receiver that asked. */
+    val by: String? = null,
+    /** What the phone's owner calls [from] in their contacts, if they allow names to be sent. */
+    val name: String? = null,
 ) {
     fun encode(): ByteArray = JSONObject()
         .put("v", 2)
@@ -31,6 +47,14 @@ data class Payload(
         // An absent key and an explicit null are different to the Receiver.
         .put("code", code ?: JSONObject.NULL)
         .put("at", at)
+        // Left out when absent: a Receiver from before these existed reads
+        // the message as the SMS it has always known.
+        .apply { kind?.let { put("kind", it) } }
+        .apply { simKey?.let { put("simKey", it) } }
+        .apply { ok?.let { put("ok", it) } }
+        .apply { why?.let { put("why", it) } }
+        .apply { by?.let { put("by", it) } }
+        .apply { name?.let { put("name", it) } }
         .toString()
         .toByteArray()
 

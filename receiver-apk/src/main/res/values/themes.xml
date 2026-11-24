@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.EasyOTP" parent="android:Theme.Material.Light.NoActionBar">
+        <!-- The colour of the screens, so the window does not flash white before they load. -->
+        <item name="android:windowBackground">@color/paper</item>
+        <item name="android:statusBarColor">@color/paper</item>
+        <item name="android:navigationBarColor">@color/paper</item>
+        <item name="android:windowLightStatusBar">true</item>
+    </style>
+    <color name="paper">#FBFAF8</color>
+</resources>

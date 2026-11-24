@@ -2,42 +2,15 @@ import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
 import { CODE_SHAPE, pairAsReceiver, PairingError, type HostChannel, type PairingResult } from "../pairing";
-import { COLOURS, THINGS } from "../pictures";
 import { newHostKeys, type HostKeys } from "./db";
 import { faDigits, latinDigits, type Lang, type Strings } from "./i18n";
-import { Alert, Button, Card, Screen } from "./ui";
+import { Alert, Button, Card, PictureCard, Screen } from "./ui";
 
 type Step =
   | { at: "enter"; error?: string }
   | { at: "waiting" }
   | { at: "picture"; result: PairingResult & { host: HostChannel | null }; keys: HostKeys }
   | { at: "done"; host: string };
-
-/** The colour and the thing, large, with both words: this is read aloud on a call. */
-export function PictureCard({ result, lang }: { result: PairingResult; lang: Lang }) {
-  const colour = COLOURS[result.picture.colour]!;
-  const thing = THINGS[result.picture.thing]!;
-  const other: Lang = lang === "fa" ? "en" : "fa";
-  return (
-    <Card className="flex flex-col items-center gap-4">
-      <div
-        // The one place a colour is not a token: it is the content being compared.
-        style={{ backgroundColor: colour.css }}
-        className="flex size-44 items-center justify-center rounded-xl border-4 border-border text-8xl"
-        role="img"
-        aria-label={`${thing[lang]} ${colour[lang]}`}
-      >
-        <span aria-hidden>{thing.emoji}</span>
-      </div>
-      <p className="text-center text-3xl font-bold">
-        {thing[lang]} · {colour[lang]}
-      </p>
-      <p className="text-center text-lg text-muted-foreground" lang={other} dir={other === "fa" ? "rtl" : "ltr"}>
-        {thing[other]} · {colour[other]}
-      </p>
-    </Card>
-  );
-}
 
 export function Pair(props: {
   t: Strings;
@@ -121,7 +94,7 @@ export function Pair(props: {
         {props.header}
         <h1 className="text-2xl font-bold">{t.pictureTitle}</h1>
         <p>{t.pictureBody}</p>
-        <PictureCard result={step.result} lang={lang} />
+        <PictureCard picture={step.result.picture} lang={lang} />
         {step.result.peerLabel && <p className="text-muted-foreground">{t.pictureHost(step.result.peerLabel)}</p>}
         <Button
           disabled={saving}

@@ -79,6 +79,18 @@ class ReceiverSealerTest {
             .put("plaintext", String(plaintext))
             .put("enc", ReceiverSealer.base64UrlEncode(sealed.enc))
             .put("ct", ReceiverSealer.base64UrlEncode(sealed.ciphertext))
+            // A status report is a second kind of payload with its own
+            // encoder, so it is proven the same way.
+            .put(
+                "status",
+                sealer.seal(INTEROP_STATUS.encode()).let { status ->
+                    JSONObject()
+                        .put("id", INTEROP_STATUS.id)
+                        .put("plaintext", String(INTEROP_STATUS.encode()))
+                        .put("enc", ReceiverSealer.base64UrlEncode(status.enc))
+                        .put("ct", ReceiverSealer.base64UrlEncode(status.ciphertext))
+                },
+            )
             .toString(2)
 
         val out = File(System.getProperty("easyotp.fixtureDir") ?: "build/interop")
@@ -99,6 +111,18 @@ class ReceiverSealerTest {
             body = "رمز یکبار مصرف: 4821",
             code = "4821",
             at = 1_700_000_000_000L,
+        )
+
+        /** A phone on battery whose network it cannot name: one null of each kind the Receiver must accept. */
+        val INTEROP_STATUS = HostStatus(
+            id = Payload.wireId(ByteArray(32) { 7 }, "interop-status"),
+            at = 1_700_000_000_000L,
+            every = 900,
+            battery = 17,
+            charging = false,
+            net = null,
+            pending = 2,
+            ack = "theCommandThisAnswers0000000000",
         )
     }
 }

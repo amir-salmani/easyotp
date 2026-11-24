@@ -1,7 +1,7 @@
 name: build
 
 # Everything anyone installs or runs comes from here (DECISIONS D20): the Host
-# APK and the bridge image. A tag named v* publishes a GitHub Release; every
+# APK, the Receiver APK and the bridge image. A tag named v* publishes a GitHub Release; every
 # other push proves the build.
 on:
   push:
@@ -119,13 +119,25 @@ jobs:
           path: receiver/e2e-shots
           if-no-files-found: ignore
 
-  host:
+  # Both Android apps. Their screens are web builds from receiver/, packed
+  # into each APK, so Node runs before Gradle.
+  apps:
     runs-on: ubuntu-latest
     env:
       EASYOTP_VERSION_CODE: ${{ github.run_number }}
-      EASYOTP_VERSION_NAME: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || format('0.0.{0}-{1}', github.run_number, github.sha) }}
     steps:
       - uses: actions/checkout@v7
+
+      # Shown at the foot of the app's home screen, so it is kept short: the
+      # tag for a release, otherwise the build number and seven characters of
+      # the commit.
+      - name: Name the version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/v*) name="$GITHUB_REF_NAME" ;;
+            *) name="0.0.$GITHUB_RUN_NUMBER-${GITHUB_SHA::7}" ;;
+          esac
+          echo "EASYOTP_VERSION_NAME=$name" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v6
         with:
@@ -139,28 +151,35 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      # --rerun, because one test writes the fixture the next step opens. A
-      # test task restored from the build cache passes without running, and
-      # then there is no fixture.
-      - name: Unit tests
-        run: ./gradlew :host:testDebugUnitTest --rerun --stacktrace
-
-      # The committed fixture only proves that whatever wrote it interoperates.
-      # Sealing a fresh one here with the Host's code and opening it with the
-      # Receiver's is what makes a change to either side's sealing fail in CI
-      # instead of in the field, where it shows up as messages nobody can open.
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: receiver/package-lock.json
 
+      - name: Build the screens into both apps
+        working-directory: receiver
+        run: |
+          npm ci
+          npm run build:host
+          npm run build:apk
+
+      # --rerun, because one test writes the fixture the next step opens. A
+      # test task restored from the build cache passes without running, and
+      # then there is no fixture. The option belongs to the task it follows,
+      # so it sits after the Host's tests, which are the ones that write.
+      - name: Unit tests
+        run: ./gradlew :host:testDebugUnitTest --rerun :shell:testDebugUnitTest --stacktrace
+
+      # The committed fixture only proves that whatever wrote it interoperates.
+      # Sealing a fresh one here with the Host's code and opening it with the
+      # Receiver's is what makes a change to either side's sealing fail in CI
+      # instead of in the field, where it shows up as messages nobody can open.
       - name: Receiver opens what the Host just sealed
         run: |
           set -euo pipefail
           cp host/build/interop/hpke-fixture.json receiver/test/hpke-fixture.json
           cd receiver
-          npm ci
           npm run typecheck
           npm test
 
@@ -184,45 +203,52 @@ jobs:
           echo "EASYOTP_KEYSTORE=$RUNNER_TEMP/release.p12" >> "$GITHUB_ENV"
           echo "present=true" >> "$GITHUB_OUTPUT"
 
-      - name: Signed release APK
+      - name: Signed release APKs
         if: steps.key.outputs.present == 'true'
         env:
           EASYOTP_KEYSTORE_PASSWORD: ${{ secrets.EASYOTP_KEYSTORE_PASSWORD }}
         run: |
           set -euo pipefail
-          ./gradlew :host:assembleRelease :host:lintRelease --stacktrace
+          ./gradlew :host:assembleRelease :host:lintRelease :receiver-apk:assembleRelease :receiver-apk:lintRelease --stacktrace
           cp host/build/outputs/apk/release/host-release.apk easyotp-host.apk
+          cp receiver-apk/build/outputs/apk/release/receiver-apk-release.apk easyotp-receiver.apk
           # A release that is not signed with the one key every installed phone
           # trusts must never leave this job.
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
-          "$apksigner" verify --print-certs easyotp-host.apk | tee certs.txt
-          grep -qi "SHA-256 digest: fa735cec0267e066611ce1afa31c50e661d0fb8b51d6ed2e39a5e8fb066bbc5a" certs.txt
-          sha256sum easyotp-host.apk | tee easyotp-host.apk.sha256
+          for apk in easyotp-host.apk easyotp-receiver.apk; do
+            "$apksigner" verify --print-certs "$apk" | tee certs.txt
+            grep -qi "SHA-256 digest: fa735cec0267e066611ce1afa31c50e661d0fb8b51d6ed2e39a5e8fb066bbc5a" certs.txt
+            sha256sum "$apk" | tee "$apk.sha256"
+          done
 
       - uses: actions/upload-artifact@v7
         if: steps.key.outputs.present == 'true'
         with:
-          name: easyotp-host
+          name: easyotp-apks
           path: |
             easyotp-host.apk
             easyotp-host.apk.sha256
+            easyotp-receiver.apk
+            easyotp-receiver.apk.sha256
           if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [bridge, receiver, host]
+    needs: [bridge, receiver, apps]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v8
         with:
-          name: easyotp-host
-      # Asset names are a contract: dl.amirsalmani.com serves the asset called
-      # easyotp-host.apk from the latest release (DECISIONS D21).
+          name: easyotp-apks
+      # Asset names are a contract: dl.amirsalmani.com serves the assets called
+      # easyotp-host.apk and easyotp-receiver.apk from the latest release
+      # (DECISIONS D21).
       - name: Publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" easyotp-host.apk easyotp-host.apk.sha256 \
+            easyotp-receiver.apk easyotp-receiver.apk.sha256 \
             --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

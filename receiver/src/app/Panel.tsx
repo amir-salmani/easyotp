@@ -2,6 +2,7 @@ import { ChevronDown, ExternalLink, Pencil, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { PairedHost } from "./db";
 import type { Lang, Strings } from "./i18n";
+import { shell, SHELL_CHANGE } from "./shell";
 import { Button } from "./ui";
 
 const SOURCE = "https://github.com/amir-salmani/easyotp";
@@ -119,6 +120,12 @@ export function Panel(props: {
   lang: Lang;
   hosts: PairedHost[];
   counts: Record<string, number>;
+  /** Whether a closed app will be woken: true, false, or null when that was not tried. */
+  wakes: boolean | null;
+  /** The answer to "may this app notify" just changed, or the person asks to try again. */
+  onNotifyChanged: () => void;
+  spamAuto: boolean;
+  onSpamAuto: (auto: boolean) => void;
   onClose: () => void;
   onLang: (lang: Lang) => void;
   onRename: (host: PairedHost, name: string) => void;
@@ -129,7 +136,15 @@ export function Panel(props: {
   const { t, lang } = props;
   const ref = useRef<HTMLDialogElement>(null);
   const [askingDelete, setAskingDelete] = useState(false);
-  const [notify, setNotify] = useState(typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  type Permission = "granted" | "denied" | "default" | "unsupported";
+  const permission = (): Permission => (shell ? (shell.notifications() as Permission) : typeof Notification === "undefined" ? "unsupported" : Notification.permission);
+  const [notify, setNotify] = useState(permission);
+  // Inside the Android app the answer to "may I notify" comes back as an event.
+  useEffect(() => {
+    const refresh = () => setNotify(permission());
+    window.addEventListener(SHELL_CHANGE, refresh);
+    return () => window.removeEventListener(SHELL_CHANGE, refresh);
+  }, []);
 
   useEffect(() => {
     ref.current?.showModal();
@@ -191,13 +206,35 @@ export function Panel(props: {
           <div className="flex flex-col gap-2">
             <p className="font-semibold">{t.notifications}</p>
             {notify === "default" ? (
-              <Button variant="secondary" onClick={async () => setNotify(await Notification.requestPermission())}>
+              <Button variant="secondary" onClick={async () => {
+                  if (shell) return shell.askNotifications();
+                  setNotify(await Notification.requestPermission());
+                  props.onNotifyChanged();
+                }}>
                 {t.notifyOn}
               </Button>
             ) : (
               <p>{notifyText}</p>
             )}
+            {/* Said plainly, because a notification that silently never comes looks like a lost code. */}
+            {notify === "granted" && props.wakes === true && <p className="font-medium text-success">{t.wakesOn}</p>}
+            {notify === "granted" && props.wakes === false && (
+              <>
+                <p className="font-medium text-destructive">{t.wakesOff}</p>
+                <Button variant="secondary" onClick={props.onNotifyChanged}>
+                  {t.retry}
+                </Button>
+              </>
+            )}
             <p className="text-muted-foreground">{t.notifyHint}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="font-semibold">{t.spamTitle}</p>
+            <label className="flex min-h-14 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 font-medium">
+              <input type="checkbox" className="size-6 shrink-0" checked={props.spamAuto} onChange={(e) => props.onSpamAuto(e.target.checked)} />
+              {t.spamAuto}
+            </label>
+            <p className="text-muted-foreground">{t.spamAutoHint}</p>
           </div>
           <Button variant="danger" onClick={() => setAskingDelete(true)}>
             {t.deleteMessages}

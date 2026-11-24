@@ -16,6 +16,7 @@ import { SEED_BRIDGES } from "../src/bridges";
 import { newCode } from "../src/pairing";
 import { COLOURS, THINGS } from "../src/pictures";
 import { simHost } from "./sim-host";
+import { steadyFetch } from "./steady-fetch";
 
 const bridges = process.argv.length > 2 ? process.argv.slice(2) : [...SEED_BRIDGES];
 const name = process.env.FAKE_HOST_NAME ?? "Fake Host";
@@ -36,8 +37,20 @@ console.log(`\nRead this code to the person with the Receiver:\n\n    ${code.sli
 
 const state = { battery: 82, charging: true, net: "wifi" as const, pending: 0 };
 const host = await simHost({
-  bridges, code, label: name, state, every: 30,
-  onCommand: (cmd) => console.log(cmd === "buzz" ? "\n\u0007*** The Receiver asked this phone to RING ***" : "\n(the Receiver asked for a fresh report)"),
+  bridges, code, label: name, state, every: 30, fetch: steadyFetch,
+  can: ["sms", "calls"],
+  onCommand: (cmd, command) =>
+    console.log(
+      cmd === "buzz"
+        ? "\n\u0007*** The Receiver asked this phone to RING ***"
+        : cmd === "hush"
+          ? "\n(the Receiver asked the ring to stop)"
+          : cmd === "sms"
+            ? `\n*** The Receiver asked this phone to SEND to ${command.to}: ${command.text}`
+            : cmd === "decline"
+              ? `\n*** The Receiver DECLINED the call${command.text ? ` and wrote: ${command.text}` : ""}`
+              : "\n(the Receiver asked for a fresh report)",
+    ),
 });
 const colour = COLOURS[host.picture.colour]!;
 const thing = THINGS[host.picture.thing]!;
@@ -50,11 +63,23 @@ if ((await rl.question("Is it the same on the Receiver? [y/N] ")).trim().toLower
 
 host.start();
 console.log("\nPaired. Reporting every 30 s. Type a line and press Enter to send it as an SMS. Ctrl-C to stop.");
-console.log('Try: "رمز پویا: 48217365 مبلغ 250000 ریال", or /battery 12, /unplug, /plug\n');
+console.log('Try: "رمز پویا: 48217365 مبلغ 250000 ریال", or /battery 12, /unplug, /plug, /call 09121234567, /missed\n');
 
+let lastCall: { from: string; at: number } | null = null;
 for (;;) {
   const line = (await rl.question("> ")).trim();
   if (!line) continue;
+  // "/call 09121234567" rings; "/missed" says the last call went unanswered.
+  const call = /^\/call (\S+)$/.exec(line);
+  if (call) {
+    lastCall = { from: call[1]!, at: Date.now() };
+    console.log(`  the phone rings: ${(await host.sendCall("call", lastCall.from, lastCall.at)).join(", ")}`);
+    continue;
+  }
+  if (line === "/missed" && lastCall) {
+    console.log(`  nobody answered: ${(await host.sendCall("missed", lastCall.from, lastCall.at)).join(", ")}`);
+    continue;
+  }
   const battery = /^\/battery (\d{1,3})$/.exec(line);
   if (battery || line === "/unplug" || line === "/plug") {
     if (battery) state.battery = Math.min(100, Number(battery[1]));

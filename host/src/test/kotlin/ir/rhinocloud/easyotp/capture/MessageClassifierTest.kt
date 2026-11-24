@@ -106,4 +106,40 @@ class MessageClassifierTest {
         assertFalse(MessageClassifier.isOtp("hi"))
         assertNull(MessageClassifier.extractCode(""))
     }
+
+    // The same cases as receiver/test/spam.spec.ts: the Host decides whether
+    // to wake a Receiver, the Receiver where to list the message, and the two
+    // must not disagree.
+
+    @Test
+    fun `the carriers' opt-out line marks an advertisement, however it is written`() {
+        for (tail in listOf("لغو11", "لغو ۱۱", "لغو=11", "لغو: ۱۱", "لغو ٢٢")) {
+            assertTrue(tail, MessageClassifier.looksLikeAd("فروش ویژه‌ی زمستانه شروع شد\n$tail"))
+        }
+    }
+
+    @Test
+    fun `a sale needs a link beside it, and a link a sale`() {
+        assertTrue(MessageClassifier.looksLikeAd("۵۰٪ تخفیف فقط امروز shop.example.ir/y"))
+        assertFalse(MessageClassifier.looksLikeAd("قبض شما آماده است: https://pay.example.ir/123"))
+        assertFalse(MessageClassifier.looksLikeAd("تخفیف عوارض برای خودروهای برقی تصویب شد"))
+    }
+
+    @Test
+    fun `a message that carries a code is never an advertisement`() {
+        // A shop's login code arrives with the shop's advertising around it.
+        // Staying quiet about it would be the one failure that matters.
+        assertFalse(MessageClassifier.looksLikeAd("کد ورود شما: 48213\nجشنواره‌ی تخفیف: shop.example.ir\nلغو11"))
+    }
+
+    @Test
+    fun `a bank's notice is not an advertisement`() {
+        assertFalse(MessageClassifier.looksLikeAd("برداشت 2,500,000 ریال از حساب 1234\nمانده 10,000,000\n03/09 14:20"))
+        assertFalse(MessageClassifier.looksLikeAd("لغو تراکنش شما انجام شد"))
+    }
+
+    @Test
+    fun `a link glued to Persian text is found, as the Receiver finds it`() {
+        assertTrue(MessageClassifier.looksLikeAd("تخفیف ویژه خریدازshop.ir"))
+    }
 }

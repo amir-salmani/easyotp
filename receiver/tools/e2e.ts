@@ -75,7 +75,7 @@ async function main() {
   const pairWith = async (hostName: string) => {
     const code = newCode();
     const rings: string[] = [];
-    const host = simHost({ bridges: BRIDGES, code, label: hostName, timeoutMs: 30_000, every: 5, onCommand: (cmd) => rings.push(cmd) });
+    const host = simHost({ bridges: BRIDGES, code, label: hostName, timeoutMs: 30_000, every: 5, can: ["sms", "calls"], onCommand: (cmd) => rings.push(cmd) });
     await page.locator("#code").fill(code);
     await page.locator("#label").fill("آیفون امیر");
     await page.getByRole("button", { name: "ادامه" }).click();
@@ -123,11 +123,43 @@ async function main() {
   await page.getByRole("button", { name: "زنگ بزن" }).click();
   await page.getByText("گوشی زنگ زد").waitFor();
   assert.deepEqual(mum.rings, ["buzz"]);
+  // Whoever made it ring can stop it from here.
+  await page.getByRole("button", { name: "خاموش کردن زنگ" }).click();
+  await page.getByText("زنگ خاموش شد").waitFor();
+  assert.deepEqual(mum.rings, ["buzz", "hush"]);
 
   // A dying battery, off the charger, is said in words.
   await mum.sendStatus({ battery: 12, charging: false });
   await page.getByText("باتری کم است و گوشی به شارژ وصل نیست.").waitFor();
   await shot("4c-low-battery");
+
+  // Someone writes to the SIM, and is answered from here: the phone sends
+  // the reply and lists it for everyone who reads that SIM.
+  await mum.sendSms("سلام، رسیدی؟", null, "همراه اول", "+989121112233");
+  const hello = page.getByRole("listitem").filter({ hasText: "سلام، رسیدی؟" });
+  await hello.getByRole("button", { name: "پاسخ" }).click();
+  await hello.getByRole("textbox").fill("بله، رسیدم.");
+  await hello.getByRole("button", { name: "فرستادن" }).click();
+  const sent = page.getByRole("listitem").filter({ hasText: "فرستاده شد به" });
+  await sent.getByText("بله، رسیدم.").waitFor();
+  assert.ok(mum.rings.includes("sms"));
+  await shot("4d-reply");
+
+  // The phone rings. It can be declined from here, with a line for the caller.
+  const rangAt = Date.now();
+  await mum.sendCall("call", "+989121112233", rangAt);
+  const call = page.getByRole("listitem").filter({ hasText: "تماس از" });
+  await call.getByText("دارد زنگ می‌زند").waitFor();
+  await shot("4e-ringing");
+  await call.getByRole("button", { name: "رد تماس با پیامک" }).click();
+  await call.getByRole("button", { name: "بعداً تماس می‌گیرم." }).click();
+  await page.getByRole("listitem").filter({ hasText: "فرستاده شد به" }).getByText("بعداً تماس می‌گیرم.").waitFor();
+  assert.ok(mum.rings.includes("decline"));
+  // Nobody answered: the ringing card gives way to the missed one.
+  await mum.sendCall("missed", "+989121112233", rangAt);
+  await page.getByText("تماس بی‌پاسخ از").waitFor();
+  assert.equal(await page.getByText("دارد زنگ می‌زند").count(), 0);
+  await shot("4f-missed");
 
   // A phone that stops reporting is called silent, not left looking alive.
   mum.stop();
@@ -164,6 +196,36 @@ async function main() {
   // 5. One tap copies the code.
   await page.getByRole("button", { name: "کپی کد" }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "48217365");
+
+  // Advertising is set aside by itself, and a code never is.
+  await mum.sendSms("جشنواره‌ی زمستانه! ۵۰٪ تخفیف\nshop.example.ir/y\nلغو11", null, "همراه اول", "SHOP-X");
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).waitFor();
+  assert.equal(await page.getByText("جشنواره‌ی زمستانه").count(), 0, "the advertisement is not among the messages");
+  await page.getByText("48217365", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).click();
+  await page.getByText("خودکار جدا شد: به نظر تبلیغاتی می‌رسد.").waitFor();
+  // The advertiser said how to be rid of it; one tap would send exactly that.
+  await page.getByRole("button", { name: "لغو دریافت (ارسال ۱۱)" }).waitFor();
+  assert.equal(await page.getByText("48217365", { exact: true }).count(), 0, "the code is not under spam");
+  await shot("5b-spam");
+  // "Not spam" brings it back, and says so.
+  await page.getByRole("button", { name: "هرزنامه نیست" }).click();
+  await page.getByText("پیام‌های «SHOP-X» دوباره در پیام‌ها می‌آید.").waitFor();
+  await page.getByRole("tab", { name: "پیام‌ها" }).click();
+  const ad = page.getByRole("listitem").filter({ hasText: "جشنواره‌ی زمستانه" });
+  await ad.waitFor();
+  // Marking it by hand moves everything from that sender; undo puts it back.
+  await ad.getByRole("button", { name: "هرزنامه است" }).click();
+  await page.getByText("از این پس پیام‌های «SHOP-X» در هرزنامه می‌آید.").waitFor();
+  assert.equal(await ad.count(), 0);
+  await shot("5c-marked-spam");
+  await page.getByRole("button", { name: "برگرداندن" }).click();
+  await ad.waitFor();
+  await ad.getByRole("button", { name: "هرزنامه است" }).click();
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).waitFor();
+  // The next one from that sender goes straight there, advertisement or not.
+  await mum.sendSms("سلام، سفارش شما آماده است", null, "همراه اول", "shop-x");
+  await page.getByRole("tab", { name: "هرزنامه (۲)" }).waitFor();
 
   // 6. A second Host, with its own keys and its own box.
   await page.getByRole("button", { name: "فرستنده‌ها و تنظیمات" }).click();

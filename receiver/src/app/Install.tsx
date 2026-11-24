@@ -1,6 +1,7 @@
 import { Download } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { Strings } from "./i18n";
+import { shell } from "./shell";
 import { Button, Card, Screen } from "./ui";
 
 interface InstallPrompt extends Event {
@@ -10,6 +11,8 @@ interface InstallPrompt extends Event {
 /** True once the app runs from the home screen, on any platform. */
 export function isInstalled(): boolean {
   return (
+    // Inside the Android app there is nothing left to install.
+    shell !== undefined ||
     window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   );

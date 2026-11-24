@@ -7,7 +7,9 @@ import android.provider.Telephony
 import android.util.Log
 import ir.rhinocloud.easyotp.data.CapturedMessage
 import ir.rhinocloud.easyotp.data.Outbox
+import ir.rhinocloud.easyotp.data.Settings
 import ir.rhinocloud.easyotp.service.ForwarderService
+import ir.rhinocloud.easyotp.service.SendLedger
 import java.util.concurrent.Executors
 
 /**
@@ -52,6 +54,14 @@ class SmsReceiver : BroadcastReceiver() {
                     return@execute
                 }
 
+                // Nothing is kept that has nowhere to go: before the owner has
+                // agreed and paired someone, this is just a phone receiving its
+                // own messages. If the settings cannot be read, the message is
+                // kept, because "nobody is paired" would then be a guess.
+                val wanted = runCatching { Settings(context.applicationContext).receiversFor(sim.iccid).isNotEmpty() }
+                    .getOrDefault(true)
+                if (!wanted) return@execute
+
                 val stored = Outbox(context.applicationContext).enqueue(
                     CapturedMessage(
                         iccid = sim.iccid,
@@ -60,6 +70,13 @@ class SmsReceiver : BroadcastReceiver() {
                         receivedAt = receivedAt,
                     ),
                 )
+
+                // Whoever wrote to this SIM may be answered from it (DECISIONS D31).
+                // Kept as a hash, and only once the message itself is safe.
+                runCatching {
+                    SendLedger(context.applicationContext, Settings(context.applicationContext).installSalt())
+                        .heardFrom(sim.iccid, sender, receivedAt)
+                }
 
                 // Never the sender or the body (THREAT-MODEL rule 1). Length and
                 // slot are enough to tell a working pipeline from a stalled one.

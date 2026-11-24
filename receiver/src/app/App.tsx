@@ -3,12 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
 import { randomKey } from "../ids";
 import { watch } from "../inbox";
+import { leaveAddress, pushAddress, pushSupported, takeBackAddress } from "../push";
+import { DEFAULT_SPAM, isSpam, type SpamSettings } from "../spam";
 import { Db, type PairedHost, type StoredMessage } from "./db";
 import { STRINGS, type Lang } from "./i18n";
 import { Install, isInstalled } from "./Install";
 import { Messages } from "./Messages";
 import { Pair } from "./Pair";
 import { Panel } from "./Panel";
+import { shell } from "./shell";
 import { Alert, Screen } from "./ui";
 
 /** A development build may be opened in a tab with ?preview. A released one never. */
@@ -20,6 +23,20 @@ export function App() {
   const [failed, setFailed] = useState(false);
   const [hosts, setHosts] = useState<PairedHost[]>([]);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  /**
+   * Reads the list again. Reads can finish out of order, and one started
+   * before a Host was removed must not put its messages back on the screen,
+   * so only the newest read is shown.
+   */
+  const reads = useRef(0);
+  const reload = async (source: Db) => {
+    const mine = ++reads.current;
+    const list = await source.messages();
+    if (mine === reads.current) setMessages(list);
+  };
+  const [spam, setSpam] = useState<SpamSettings>(DEFAULT_SPAM);
+  const spamRef = useRef(spam);
+  spamRef.current = spam;
   const [pairing, setPairing] = useState(false);
   const [panel, setPanel] = useState(false);
   /** "<host id> <bridge>" to whether that bridge last answered for that Host. */
@@ -40,6 +57,7 @@ export function App() {
       setLang((await opened.lang()) ?? "fa");
       setHosts(await opened.hosts());
       setMessages(await opened.messages());
+      setSpam(await opened.spam());
       setDb(opened);
     })().catch(() => setFailed(true));
   }, []);
@@ -62,13 +80,22 @@ export function App() {
         onBridge: (bridge, isUp) =>
           setUp((prev) => (prev[`${host.id} ${bridge}`] === isUp ? prev : { ...prev, [`${host.id} ${bridge}`]: isUp })),
         onFresh: (fresh) => {
-          void db.messages().then(setMessages);
-          if (document.hidden && typeof Notification !== "undefined" && Notification.permission === "granted") {
-            const strings = STRINGS[langRef.current];
-            // Never the text of the SMS: a notification shows on a locked screen.
-            void navigator.serviceWorker?.ready.then((reg) =>
-              reg.showNotification(strings.notifyTitle(fresh[0]!.sim), { tag: "easyotp", icon: "/icons/icon-192.png" }),
-            );
+          void reload(db);
+          if (!document.hidden) return;
+          // Advertising arrives quietly. It is listed under Spam and announces nothing.
+          const wanted = fresh.filter((m) => !isSpam(m, spamRef.current));
+          if (wanted.length === 0) return;
+          // Never the text of the SMS: a notification shows on a locked screen.
+          // What this device asked the phone to send is not news to it.
+          const first = wanted.find((m) => m.kind !== "sent");
+          if (!first) return;
+          const strings = STRINGS[langRef.current];
+          const title = first.kind ? strings.notifyCall(first.sim) : strings.notifyTitle(first.sim);
+          if (shell) {
+            shell.notify(title);
+          } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+            // Dated, so a push that wakes the worker a moment later leaves this more specific one in place.
+            void navigator.serviceWorker?.ready.then((reg) => reg.showNotification(title, { tag: "easyotp", icon: "/icons/icon-192.png", data: { at: Date.now() } }));
           }
         },
       }),
@@ -77,10 +104,44 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db, boxes]);
 
+  const changeSpam = (next: SpamSettings) => {
+    setSpam(next);
+    void db?.setSpam(next);
+  };
+
   const changeLang = (next: Lang) => {
     setLang(next);
     void db?.setLang(next);
   };
+
+  // The service worker words its "a message is waiting" notification itself,
+  // with the app closed, so the language is left where it can read it.
+  useEffect(() => {
+    if (typeof caches === "undefined") return;
+    void caches.open("easyotp-prefs").then((c) => c.put("/lang", new Response(lang))).catch(() => undefined);
+  }, [lang]);
+
+  // With notifications allowed, every Host's box is told where this device
+  // can be woken. Done at every start, because a bridge forgets an address
+  // that is not renewed, and again whenever the set of Hosts changes.
+  const [notifyTick, setNotifyTick] = useState(0);
+  /** Whether a bridge holds this device's address for every Host. Null until it has been tried. */
+  const [wakes, setWakes] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!db || hosts.length === 0 || shell || !pushSupported() || Notification.permission !== "granted") return;
+    let stale = false;
+    void navigator.serviceWorker.ready.then(async (registration) => {
+      const address = await pushAddress(registration);
+      if (stale) return;
+      if (!address) return setWakes(false);
+      const taken = await Promise.all(hosts.map((host) => leaveAddress(SEED_BRIDGES, host, address)));
+      if (!stale) setWakes(taken.every((n) => n > 0));
+    });
+    return () => {
+      stale = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [db, boxes, notifyTick]);
 
   const header = useMemo(
     () => (
@@ -161,6 +222,8 @@ export function App() {
         messages={messages}
         hosts={hosts}
         bridges={{ up: reachable, all: SEED_BRIDGES.length }}
+        spam={spam}
+        onSpam={changeSpam}
       />
       {panel && (
         <Panel
@@ -168,16 +231,22 @@ export function App() {
           lang={lang}
           hosts={hosts}
           counts={counts}
+          spamAuto={spam.auto}
+          onSpamAuto={(auto) => changeSpam({ ...spam, auto })}
           onClose={() => setPanel(false)}
           onLang={changeLang}
           onRename={async (host, name) => {
             await db.putHost({ ...host, name });
             setHosts(await db.hosts());
           }}
+          wakes={wakes}
+          onNotifyChanged={() => setNotifyTick((n) => n + 1)}
           onRemove={async (host) => {
+            // While its key is still here: after this nothing can speak for that box.
+            void takeBackAddress(SEED_BRIDGES, host);
             await db.removeHost(host.id);
             setHosts(await db.hosts());
-            setMessages(await db.messages());
+            await reload(db);
             setPanel(false);
           }}
           onPairAnother={() => {
@@ -186,6 +255,7 @@ export function App() {
           }}
           onDeleteMessages={async () => {
             await db.deleteMessages();
+            reads.current++;
             setMessages([]);
           }}
         />

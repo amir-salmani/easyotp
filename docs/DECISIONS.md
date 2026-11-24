@@ -713,8 +713,230 @@ never the key, so it cannot make a phone ring.
 Host's own intervals. The interval travels in the report, so the Receiver does
 not need to know it in advance.
 
-**Built:** the Receiver's side, the bridge's tag, and a Host simulator in
-TypeScript used by the tests and the stand-in. **Not built:** the Host app's
-side in Kotlin, where a command also has to reach a phone that Android is
-trying to put to sleep.
+**Built:** both sides, the bridge's tag, and a Host simulator in TypeScript
+used by the tests and the stand-in. How the Host app waits for a command
+without paying for it is D28. **Unverified:** that a command reaches a real
+phone that has been asleep for hours; an emulator does not sleep like one.
 
+
+---
+
+## D27 — A Receiver reads every SIM unless narrowed, and consent is given once (2026-11-24)
+
+**Chosen:** a paired Receiver gets the messages of every SIM in the phone,
+including one put in later. The owner can limit a Receiver to particular SIMs
+from the Host's home screen. Consent is one acknowledgement at setup, before
+which nothing is captured at all.
+
+**Rejected:** a route per SIM with its own consent and its own list of
+Receivers, which is what the first code had; choosing SIMs as a step of
+pairing.
+
+**Why:** the person setting this up is often an older relative following
+instructions over a phone call. Most phones in question hold one SIM, and a
+pairing that ends with a question about routing keys is one more place to get
+stuck. The household with two SIMs and two readers is real, so the choice
+exists, one tap away, after the pairing has already worked.
+
+**Nothing is kept that has nowhere to go.** Before the acknowledgement, and
+for a SIM no Receiver reads, the capture path stores nothing. If the settings
+cannot be read it stores the message anyway: "nobody is paired" would then be
+a guess, and a wrong guess loses someone's code.
+
+**Costs:** a second Receiver sees a spouse's bank codes unless someone narrows
+it. The picture step names who is being connected, and the home screen shows
+what each one reads.
+
+---
+
+## D28 — The Host waits for commands at one bridge, and reports from an alarm (2026-11-24)
+
+**Chosen:** for each paired Receiver the Host holds one waiting request, at the
+first bridge that answers, and moves to the next only when that one fails. On
+every status alarm it also looks once at each of the others. Reports are driven
+by an inexact alarm about every twelve minutes and state an interval of
+fifteen.
+
+**Rejected:** waiting at every bridge at once, as a Receiver does; polling on a
+timer inside the service; a push service.
+
+**Why:** a Receiver is open for minutes. A Host waits all day, every day, and a
+held request is what a bridge on Workers is billed for by the second
+(BRIDGES). Waiting at all of them delivers nothing sooner when the first is up.
+A Receiver leaves a command at every bridge, so one that only reached another
+bridge is still found, at the next alarm.
+
+A timer in the service does not run while the phone is in deep sleep; an alarm
+does, about once every nine minutes at most. Stating fifteen and firing at
+twelve leaves room for a late alarm before a Receiver calls the phone silent
+at two and a half intervals.
+
+A push service would wake the phone properly, and would mean Google's servers
+and a Google account on a phone in Iran.
+
+**Costs:** a ring can take up to one alarm interval when the Host's usual
+bridge is the one the Receiver could not reach. **Unverified:** how long a
+waiting request survives on a sleeping phone with the battery exemption
+granted; that needs hardware.
+
+---
+
+## D29 — The Host's screens are a web build behind one narrow interface (2026-11-24)
+
+**Chosen:** the screens are built from the same project as the Receiver's and
+shown in a WebView. They reach the phone only through `HostApi`: one call that
+returns what to draw, and one per button. Pairing, keys, sealing and every
+network request stay in Kotlin. The WebView refuses the screens any request
+that is not for a bundled file.
+
+**Rejected:** pairing in the WebView with the Receiver's TypeScript, which
+already existed and would have saved writing it twice; native screens.
+
+**Why:** D19 wants screens that can be replaced without a new APK. Whatever can
+be replaced that way must not be able to read a key or send anything, or the
+signature on a screen update becomes the only thing between a bridge and every
+message. With the keys in Kotlin and the page offline, the worst a bad screen
+can do is show the wrong thing.
+
+Two implementations of pairing can drift, so one pairing is written down
+(`receiver/test/pairing-vectors.json`) and a test on each side recomputes it.
+
+**Not built yet:** fetching and verifying a signed screen build (D19). Today
+the build is inside the APK.
+
+---
+
+## D30 — A bridge wakes a closed Receiver with an empty push (2026-11-24)
+
+**Chosen:** a Receiver with notifications on leaves, at each bridge and for
+each Host's box, the address its browser was given for push messages. When a
+message arrives for that box, a bridge that can push sends that address a push
+with nothing in it. The Receiver's service worker shows "a new SMS has arrived"
+and the Receiver collects and opens the message, as before, when it is opened.
+
+| Part | What it does |
+|---|---|
+| `POST /v2/box/<id>/push`, `DELETE` | leave an address, take it back. Needs the box key |
+| Allowed addresses | only the push services of the browsers; anything else is refused |
+| Reports | never pushed: a tagged message wakes nobody |
+| `quiet` on a deposit | a Host marks what reads as advertising; a bridge does not push for it |
+| An address not renewed for sixty days, or one the push service calls gone | forgotten |
+
+**Rejected:** a push that carries the sealed message, opened by the service
+worker; a push that names the SIM or the sender; the Host pushing directly;
+keeping the Receiver's request open in the background; a separate push server.
+
+**Why:** a code is useless ten minutes late, and until now a Receiver that was
+not open received nothing. A browser will wake a closed web app only through
+its maker's push service, so something has to call that service when a message
+arrives, and the bridge is the one thing that is there at that moment.
+
+**Empty on purpose.** The push says only "look". A push with content would
+mean a second key and a second place a message can be opened, in a service
+worker with a few seconds to live, and it would hand the push service a
+ciphertext per message. The notification cannot name the SIM, and that is the
+price: the lock screen says a message came, never from whom.
+
+**The bridge holds a signing key, and it opens nothing.** A push service
+accepts a push only from the application that the address was made for, proved
+by a signature (VAPID). That key is the bridge's, has nothing to do with any
+Receiver's key, and a leak of it lets someone send empty notifications.
+
+**Only bridge 2 pushes.** Bridge 1 is run where it is told to reach nothing
+outside (BRIDGES), and could not reach Apple from inside Iran anyway. It
+answers 404 to an address and the Receiver moves on. A message that reached
+only bridge 1 therefore wakes nobody; it is collected when the Receiver is
+next opened.
+
+**Advertising.** The Receiver sorts advertising under Spam and stays quiet
+about it, but it is the bridge that decides to wake a closed Receiver, and a
+bridge cannot read. So the Host marks such a message `quiet`. That is one bit
+about a message that a bridge did not have before. A sender the person marked
+as spam by hand is not covered: only the Receiver knows that list.
+
+**This also settles the cost of a Receiver left open** (BRIDGES): with a push
+to rely on, nobody needs to hold a request to bridge 2 for hours.
+
+**Costs:** the push service learns when a message arrived, and the bridge
+which address belongs to which box (THREAT-MODEL A9). Both only for a Receiver
+whose owner turned notifications on.
+
+**Built:** the bridge's side on Workers, the Receiver web app's side, the
+Host's `quiet` mark. **Unverified:** delivery to a real iPhone. **Not built:**
+the same for the Receiver's Android app, where a web view has no push; and a
+Receiver that stops holding its request open once push is known to work.
+
+---
+
+## D31 — A Receiver may answer an SMS and decline a call, if the phone's owner says so (2026-11-24)
+
+**Chosen:** two powers beyond reading, both off until switched on at the Host.
+
+| Power | Switched on | What a Receiver can then do |
+|---|---|---|
+| Sending | per Receiver | answer an SMS from the SIM it came to; send an advertiser its own opt-out code |
+| Calls | for the phone | be told the phone is ringing and from whom, and that a call was missed; end a ringing call, with or without a line to the caller |
+
+A send is refused unless every one of these holds (`SendPolicy.kt`):
+
+- the owner switched sending on for that Receiver, and it reads that SIM;
+- the number wrote to or called that SIM in the last thirty days;
+- that Receiver has sent fewer than twenty in the last twenty-four hours;
+- the text is at most 200 characters;
+- the command is no more than ten minutes old by the phone's clock.
+
+Every SMS sent is told to every Receiver of that SIM, with who asked. A
+refusal is told to the one who asked, with a reason from a closed list.
+
+**Rejected:** sending to any number; no daily limit; sending switched on by a
+Receiver; answering calls or carrying their audio; reading the SMS inbox or
+the call log to decide who is known.
+
+**Why:** the person abroad is the one who needs to answer "is this you? reply
+1", or to tell a caller they will ring back. Reading alone leaves them asking
+whoever is near the phone to type for them.
+
+**Sending is a different power from reading.** A lost Receiver that can read
+sees codes. One that can send could answer a bank, subscribe to a paid
+service, or write to anyone as the SIM's owner. So it is narrowed to what the
+need is, an answer: only to a number that contacted the SIM first, a few a
+day, never from a stale command, and visible to everyone afterwards. The
+switch is on the Host because the Host is the device a thief of the Receiver
+does not hold.
+
+**Who is "known" is kept as a salted hash and a time.** The policy only ever
+asks whether this exact number has been heard from, so the number has no
+reason to be stored a second time.
+
+**Calls.** The Host learns that the phone rings and the number, as its own
+screen shows. It never answers and hears nothing. Android's announcement of a
+ringing phone does not say which SIM: on the first real two-SIM phone it
+carried the number and nothing else, and every call was left out. So each SIM
+is asked for its own call state. If that still does not single one out, the
+call is left out rather than listed under the wrong line.
+
+**Names.** A third switch sends, with a message or a call, the name the owner
+saved for that number in the phone's contacts (`READ_CONTACTS`, asked for only
+then). One name is looked up at the moment a message is sealed and travels
+inside the seal. The contact list is never read as a whole or stored.
+
+**Four new permissions,** `READ_CONTACTS` among them, asked for only when
+their switch is turned on and never at setup: `SEND_SMS`, `READ_CALL_LOG` (Android gives the ringing number
+only to an app that holds it; the log itself is never read) and
+`ANSWER_PHONE_CALLS` (to end a call; the app never answers one).
+
+**On the wire.** A call and a sent SMS travel as messages with a `kind`, so
+they are stored, shown once and acknowledged like any SMS, and a Receiver from
+before this shows them as plain messages. A reply and a decline are commands
+(D26) with a destination and a text. Each report tells a Receiver what it may
+ask for, so it shows only the buttons that will work.
+
+**Costs:** more to go wrong on a phone nobody watches, and a wider permission
+list for anyone reading the manifest. A Receiver left unlocked can now write
+up to twenty answers a day as the SIM's owner (THREAT-MODEL A4).
+
+**Built and run on an emulator:** a reply sent, a stranger refused, a call
+declined with a message, a missed call reported. **Unverified on hardware:**
+which SIM a call is attributed to on a dual-SIM phone, ending a call on each
+manufacturer's Android, and whether a sideloaded install is allowed these
+permissions without the "restricted settings" step.

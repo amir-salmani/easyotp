@@ -1,4 +1,4 @@
-import { BatteryCharging, BatteryLow, BatteryMedium, Bell, Check, CircleAlert, RefreshCw, Signal, Wifi, WifiOff } from "lucide-react";
+import { BatteryCharging, BatteryLow, BatteryMedium, Bell, BellOff, Check, CircleAlert, RefreshCw, Signal, Wifi, WifiOff } from "lucide-react";
 import { useEffect, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
 import { sendCommand } from "../commands";
@@ -11,6 +11,8 @@ import { Card } from "./ui";
 const MISSED_REPORTS = 2.5;
 /** How long to wait for a phone to say it rang. */
 const ANSWER_MS = 30_000;
+/** How long a Host rings if nobody stops it. Must match RING_MILLIS in the Host's Buzzer. */
+const RING_MS = 20_000;
 
 type Asked = { cmd: Command["cmd"]; id: string | null; at: number; result?: "done" | "silent" };
 
@@ -50,6 +52,9 @@ function HostMonitor({ host, t, lang, now, showName }: { host: PairedHost; t: St
   const alive = status ? now - status.at < status.every * 1000 * MISSED_REPORTS : false;
   const low = status?.battery != null && status.battery < 20 && status.charging === false;
   const waiting = asked !== null && !asked.result;
+  // The phone said it is ringing, and by its own rule it still is.
+  // `now` ticks every few seconds, which is what takes the button away again.
+  const ringing = asked?.cmd === "buzz" && asked.result === "done" && now - asked.at < RING_MS + 10_000;
   const Battery = status?.charging ? BatteryCharging : low ? BatteryLow : BatteryMedium;
   const Net = status?.net === "wifi" ? Wifi : status?.net === "cell" ? Signal : WifiOff;
 
@@ -120,8 +125,20 @@ function HostMonitor({ host, t, lang, now, showName }: { host: PairedHost; t: St
                   ? t.noAnswer
                   : asked.cmd === "buzz"
                     ? t.buzzed
-                    : t.refreshed}
+                    : asked.cmd === "hush"
+                      ? t.hushed
+                      : t.refreshed}
           </p>
+          {/* Whoever made it ring can end it, without anyone having to reach the phone. */}
+          {ringing && (
+            <button
+              onClick={() => void ask("hush")}
+              className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 font-semibold"
+            >
+              <BellOff aria-hidden size={20} strokeWidth={2} />
+              {t.hush}
+            </button>
+          )}
         </>
       )}
     </Card>

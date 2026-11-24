@@ -20,3 +20,9 @@ dist/
 # Editors / OS
 .idea/
 .DS_Store
+
+# Built from receiver/ by `npm run build:host` and `npm run build`; never committed.
+host/src/main/assets/ui/
+receiver-apk/src/main/assets/app/
+e2e-shots/
+dist-tools/

@@ -76,11 +76,31 @@ name failed its TLS handshake until then. One Durable Object per box, SQLite-bac
 which is the kind the free plan runs. It answers only on its own name;
 `workers.dev` is off, because that domain is filtered in Iran.
 
+**Push.** Bridge 2 is the bridge that wakes a closed Receiver (D30). It holds
+a signing key for that: the public half is `VAPID_PUBLIC_KEY` in
+`wrangler.jsonc` and in `receiver/src/push.ts`, the private half is the Worker
+secret `VAPID_PRIVATE_JWK`. Replacing the key makes every push address handed
+out so far useless until its Receiver is opened again. Bridge 1 never calls
+out, so it takes no push address and answers 404 to one.
+
 **Known cost.** A Durable Object is billed for the time a request is held open,
 and a Receiver that collects around the clock holds one open almost
 continuously. The hold is 25 s here against 55 s on bridge 1, which does not
-change the total. Before real use this path needs a hibernating WebSocket or
-push, or the free plan's daily duration allowance goes to a handful of Receivers.
+change the total. Push removes the reason to stay open for hours; a Receiver
+that actually stops doing so once it has a push address is not built yet.
+
+## Checking the bridges
+
+`npm run live-check` in `receiver/` pairs, delivers a message and rings through
+the deployed bridges, together and one at a time. The workflow `live-check` runs
+the same thing from GitHub's machines.
+
+Use the workflow when a check from a workstation fails. On 2026-11-23 the check
+failed about half the time from one laptop, always as a stalled request to
+bridge 2 and never as an error from it, while curl from the same laptop and
+eighteen runs from GitHub all passed. Bridge 2's own log showed every request
+answered. The laptop's connection to that one address was at fault, and what
+exactly about it was not found.
 
 ## Adding a bridge
 

@@ -9,6 +9,8 @@
  *   POST /v2/box/<boxId>        deposit one sealed message      (the Host)
  *   GET  /v2/box/<boxId>        collect, waiting if empty       (the Receiver)
  *   POST /v2/box/<boxId>/ack    acknowledge collected messages  (the Receiver)
+ *   POST /v2/box/<boxId>/push   leave an address to be woken at (the Receiver)
+ *   DELETE /v2/box/<boxId>/push take it back                    (the Receiver)
  *   POST /v2/pair/<slotId>      add a pairing message           (either side)
  *   GET  /v2/pair/<slotId>      read pairing messages, waiting  (either side)
  *   GET  /health
@@ -16,10 +18,12 @@
 import { LIMITS, type Sealed } from "./box";
 import { boxIdFrom, KEY_SHAPE, timingSafeEqual } from "./ids";
 import { boxTag, log } from "./log";
+import { endpointOk } from "./push";
 import { SLOT_LIMITS, type SlotView } from "./slot";
 
 export interface BoxStore {
-  deposit(boxId: string, m: Sealed): Promise<"stored" | "duplicate" | "full">;
+  /** @param notify whether a closed Receiver should be told; false for a report or an advertisement. */
+  deposit(boxId: string, m: Sealed, notify: boolean): Promise<"stored" | "duplicate" | "full">;
   collect(boxId: string, holdMs: number): Promise<Sealed[]>;
   ack(boxId: string, ids: string[]): Promise<number>;
 }
@@ -29,8 +33,15 @@ export interface PairStore {
   read(slotId: string, after: number, holdMs: number): Promise<SlotView>;
 }
 
+/** Where a Receiver's push address is kept. A bridge that cannot push has none of this. */
+export interface PushStore {
+  set(boxId: string, endpoint: string | null): Promise<void>;
+}
+
 export interface Store extends BoxStore {
   pair: PairStore;
+  /** Absent on a bridge that never calls out (bridge 1; see BRIDGES). */
+  push?: PushStore;
 }
 
 export interface Config {
@@ -58,7 +69,7 @@ const HEADERS = {
 
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 
-const reject = (route: "deposit" | "collect" | "ack" | "pair", reason: string, status: number, boxId?: string) => {
+const reject = (route: "deposit" | "collect" | "ack" | "pair" | "push", reason: string, status: number, boxId?: string) => {
   log({ route, outcome: "rejected", reason, status, box: boxId && boxTag(boxId) });
   return json({ error: reason }, status);
 };
@@ -89,13 +100,14 @@ async function deposit(req: Request, store: BoxStore, boxId: string): Promise<Re
   if (body === "malformed" || typeof body !== "object" || body === null) {
     return reject("deposit", "malformed", 400, boxId);
   }
-  const { v, id, enc, ct, tag } = body as Record<string, unknown>;
+  const { v, id, enc, ct, tag, quiet } = body as Record<string, unknown>;
   if (v !== 2) return reject("deposit", "unsupported_version", 400, boxId);
   if (
     typeof id !== "string" || !MESSAGE_ID.test(id) ||
     typeof enc !== "string" || !KEY_SHAPE.test(enc) ||
     typeof ct !== "string" || !B64URL.test(ct) ||
-    (tag !== undefined && (typeof tag !== "string" || !TAG.test(tag)))
+    (tag !== undefined && (typeof tag !== "string" || !TAG.test(tag))) ||
+    (quiet !== undefined && typeof quiet !== "boolean")
   ) {
     return reject("deposit", "malformed", 400, boxId);
   }
@@ -103,7 +115,10 @@ async function deposit(req: Request, store: BoxStore, boxId: string): Promise<Re
     return reject("deposit", "too_large", 413, boxId);
   }
 
-  const outcome = await store.deposit(boxId, { id, enc, ct, at: Date.now(), ...(tag ? { tag } : {}) });
+  // A tagged message is a report that replaces the last one, and a Host marks
+  // what reads as advertising as quiet. Neither is worth waking anyone for.
+  const notify = tag === undefined && quiet !== true;
+  const outcome = await store.deposit(boxId, { id, enc, ct, at: Date.now(), ...(tag ? { tag } : {}) }, notify);
   if (outcome === "full") {
     // The bridge is out of room, which is the bridge's fault and not the
     // message's. 507 tells the Host to count it against this bridge.
@@ -132,6 +147,24 @@ async function ack(req: Request, store: BoxStore, boxId: string): Promise<Respon
   const removed = await store.ack(boxId, ids as string[]);
   log({ route: "ack", outcome: "ok", box: boxTag(boxId), n: removed });
   return json({ ok: true, removed });
+}
+
+/** A Receiver leaves, or takes back, the address its browser can be woken at. */
+async function push(req: Request, store: Store, boxId: string): Promise<Response> {
+  if (!(await authorised(req, boxId))) return reject("push", "bad_credential", 403, boxId);
+  if (!store.push) return reject("push", "push_unsupported", 404, boxId);
+  if (req.method === "DELETE") {
+    await store.push.set(boxId, null);
+    log({ route: "push", outcome: "ok", box: boxTag(boxId), reason: "removed" });
+    return json({ ok: true });
+  }
+  const body = await readJson(req);
+  if (body === "too_large") return reject("push", "too_large", 413, boxId);
+  const endpoint = body !== "malformed" && typeof body === "object" && body !== null ? (body as { endpoint?: unknown }).endpoint : null;
+  if (!endpointOk(endpoint)) return reject("push", "malformed", 400, boxId);
+  await store.push.set(boxId, endpoint);
+  log({ route: "push", outcome: "ok", box: boxTag(boxId), reason: "set" });
+  return json({ ok: true });
 }
 
 /**
@@ -173,7 +206,7 @@ export async function handle(req: Request, store: Store, cfg: Config): Promise<R
   if (path === "/health") return json({ ok: true });
 
   const pair = path.match(/^\/v2\/pair\/([A-Za-z0-9_-]{43})$/);
-  const box = path.match(/^\/v2\/box\/([A-Za-z0-9_-]{43})(\/ack)?$/);
+  const box = path.match(/^\/v2\/box\/([A-Za-z0-9_-]{43})(\/ack|\/push)?$/);
   if (!box && !pair) return json({ error: "not_found" }, 404);
 
   if (req.method === "OPTIONS") {
@@ -181,7 +214,7 @@ export async function handle(req: Request, store: Store, cfg: Config): Promise<R
       status: 204,
       headers: {
         ...HEADERS,
-        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
         "access-control-allow-headers": "authorization, content-type",
         "access-control-max-age": "86400",
       },
@@ -193,7 +226,11 @@ export async function handle(req: Request, store: Store, cfg: Config): Promise<R
     return json({ error: "method_not_allowed" }, 405);
   }
   const boxId = box![1]!;
-  const isAck = box![2] !== undefined;
+  const isAck = box![2] === "/ack";
+  if (box![2] === "/push") {
+    if (req.method === "POST" || req.method === "DELETE") return push(req, store, boxId);
+    return json({ error: "method_not_allowed" }, 405);
+  }
 
   if (req.method === "POST" && isAck) return ack(req, store, boxId);
   if (req.method === "POST") return deposit(req, store, boxId);

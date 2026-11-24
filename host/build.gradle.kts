@@ -63,8 +63,22 @@ android {
 }
 
 dependencies {
+    implementation(project(":shell"))
     implementation(libs.tink.android)
 
     testImplementation(libs.junit)
     testImplementation(libs.json)
+}
+
+// The screens are built from receiver/ and are not in git. An APK without them
+// would install and show a blank window, so the build stops here instead.
+run {
+    // Locals only: a task action that reaches for the build script cannot be cached.
+    val screens = layout.projectDirectory.file("src/main/assets/ui/host.html").asFile
+    val missing = "The screens are missing. Run `npm run build:host` in receiver/ first."
+    tasks.named("preBuild") {
+        doFirst {
+            if (!screens.exists()) throw GradleException(missing)
+        }
+    }
 }

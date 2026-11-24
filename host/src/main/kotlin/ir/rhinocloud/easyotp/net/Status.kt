@@ -1,0 +1,118 @@
+package ir.rhinocloud.easyotp.net
+
+import org.json.JSONObject
+
+/**
+ * This phone's report on itself (DECISIONS D26). Sent every [every] seconds and
+ * whenever a Receiver asks, so that a dead battery is seen before the day a
+ * code does not arrive.
+ *
+ * The fields must match `Status` in receiver/src/open.ts. Like [Payload], a
+ * report sealed here is opened there in CI on every run.
+ */
+data class HostStatus(
+    val id: String,
+    val at: Long,
+    /** How often to expect a report, in seconds. Silence for much longer means trouble. */
+    val every: Int,
+    /** 0 to 100, or null if the phone will not say. */
+    val battery: Int?,
+    val charging: Boolean?,
+    /** "wifi", "cell", "none", or null if unknown. */
+    val net: String?,
+    /** SMS captured and not yet delivered to a bridge. */
+    val pending: Long,
+    /** The command this report answers, if it answers one. */
+    val ack: String? = null,
+) {
+    /**
+     * @param can what the Receiver this copy is sealed to may ask for beyond
+     *   ringing: "sms" to send, "calls" to decline. It shows only those buttons.
+     */
+    fun encode(can: List<String> = emptyList()): ByteArray = JSONObject()
+        .put("v", 2)
+        .put("k", "status")
+        .put("id", id)
+        .put("at", at)
+        .put("every", every)
+        // An explicit null, not an absent key: the Receiver checks for one.
+        .put("battery", battery ?: JSONObject.NULL)
+        .put("charging", charging ?: JSONObject.NULL)
+        .put("net", net ?: JSONObject.NULL)
+        .put("pending", pending)
+        .apply { if (ack != null) put("ack", ack) }
+        .apply { if (can.isNotEmpty()) put("can", org.json.JSONArray(can)) }
+        .toString()
+        .toByteArray()
+
+    companion object {
+        /** A bridge keeps only the newest message carrying this tag. */
+        const val TAG = "status"
+    }
+}
+
+/** Something a paired Receiver asks this phone to do. */
+data class Command(
+    val id: String,
+    val at: Long,
+    val what: What,
+    /** For SMS: who to send to. */
+    val to: String? = null,
+    /** For SMS, and for DECLINE when the caller should be told why: what to say. */
+    val text: String? = null,
+    /** For SMS: which SIM to send from, as [Payload.simKey] named it. */
+    val sim: String? = null,
+) {
+    enum class What { BUZZ, PING, HUSH, SMS, DECLINE }
+}
+
+/**
+ * Which commands were already obeyed. Kept across restarts by the app: a
+ * Receiver leaves each command at every bridge, a bridge keeps one for two
+ * days, and a copy this phone could not reach to acknowledge would otherwise
+ * ring it again after a reboot.
+ */
+interface CommandMemory {
+    fun load(): List<String>
+    fun save(ids: List<String>)
+}
+
+/**
+ * Opens the commands one Receiver sends.
+ *
+ * A command is obeyed once however many bridges deliver it, and only if the id
+ * inside the seal is the id it arrived under: otherwise a bridge could replay
+ * one old "ring" under new ids for ever.
+ */
+class CommandInbox(private val keys: HpkeKeyPair, private val memory: CommandMemory? = null) {
+
+    private val seen = LinkedHashSet<String>(memory?.load().orEmpty())
+
+    /** The command, or null if this is not one, is not for this key, or was already obeyed. */
+    @Synchronized
+    fun accept(envelopeId: String, enc: String, ct: String): Command? {
+        val command = runCatching {
+            val m = JSONObject(String(Hpke.open(keys, enc, ct) ?: return null, Charsets.UTF_8))
+            if (m.optInt("v") != 2 || m.optString("k") != "cmd" || m.optString("id") != envelopeId) return null
+            val what = when (m.optString("cmd")) {
+                "buzz" -> Command.What.BUZZ
+                "ping" -> Command.What.PING
+                "hush" -> Command.What.HUSH
+                "sms" -> Command.What.SMS
+                "decline" -> Command.What.DECLINE
+                else -> return null
+            }
+            val text = { key: String -> (m.opt(key) as? String)?.takeIf { it.isNotEmpty() } }
+            Command(envelopeId, m.optLong("at"), what, to = text("to"), text = text("text"), sim = text("sim"))
+        }.getOrNull() ?: return null
+
+        if (!seen.add(command.id)) return null
+        if (seen.size > REMEMBERED) seen.iterator().let { it.next(); it.remove() }
+        runCatching { memory?.save(seen.toList()) }
+        return command
+    }
+
+    private companion object {
+        const val REMEMBERED = 200
+    }
+}

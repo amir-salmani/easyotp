@@ -1,34 +1,47 @@
 package ir.rhinocloud.easyotp.service
 
+import android.Manifest
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
+import android.os.PowerManager
+import android.telecom.TelecomManager
 import android.util.Log
 import ir.rhinocloud.easyotp.R
+import ir.rhinocloud.easyotp.capture.CallReceiver
+import ir.rhinocloud.easyotp.capture.ContactNames
 import ir.rhinocloud.easyotp.capture.MessageClassifier
+import ir.rhinocloud.easyotp.capture.SimRegistry
 import ir.rhinocloud.easyotp.data.CapturedMessage
 import ir.rhinocloud.easyotp.data.Outbox
 import ir.rhinocloud.easyotp.data.PendingMessage
 import ir.rhinocloud.easyotp.data.Settings
-import ir.rhinocloud.easyotp.data.SimRoute
+import ir.rhinocloud.easyotp.data.Receiver
+import ir.rhinocloud.easyotp.data.SentRecord
 import ir.rhinocloud.easyotp.net.BridgeClient
 import ir.rhinocloud.easyotp.net.BridgeHealth
+import ir.rhinocloud.easyotp.net.Command
+import ir.rhinocloud.easyotp.net.CommandListener
 import ir.rhinocloud.easyotp.net.DepositResult
+import ir.rhinocloud.easyotp.net.HostStatus
 import ir.rhinocloud.easyotp.net.Payload
 import ir.rhinocloud.easyotp.net.ReceiverSealer
+import java.security.SecureRandom
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Drains the outbox.
+ * Drains the outbox, reports on the phone, and waits for commands.
  *
  * A foreground service rather than plain WorkManager because the phone is
  * unattended in another country: the persistent notification is the only sign,
@@ -55,6 +68,24 @@ class ForwarderService : Service() {
 
     private val client by lazy { BridgeClient(BridgeHealth(settings.bridges)) }
 
+    /**
+     * Reports, sweeps and rings run here, off the drain's thread: a report to
+     * a bridge that is not answering must not hold an SMS behind it.
+     */
+    private val side = Executors.newCachedThreadPool()
+
+    /** Sends one at a time; see [send]. */
+    private val sends = Executors.newSingleThreadExecutor()
+
+    /** One per paired Receiver, by its id. Touched only on the main thread. */
+    private val listeners = HashMap<String, CommandListener>()
+
+    private val awake by lazy {
+        getSystemService(PowerManager::class.java)
+            ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "easyotp:work")
+            ?.apply { setReferenceCounted(false) }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onCreate() {
@@ -73,6 +104,49 @@ class ForwarderService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Whatever woke the phone lets go of it as soon as this returns, and
+        // the work below is on other threads. Timed, so it cannot be leaked.
+        runCatching { awake?.acquire(AWAKE_MILLIS) }
+
+        StatusAlarm.schedule(this)
+        val receivers = try {
+            settings.receiversStrict()
+        } catch (e: Exception) {
+            // The settings could not be opened this once. That is not "nobody
+            // is paired": keep whatever is running, send what is queued, and
+            // let the next wake read them again.
+            Log.w(TAG, "settings unreadable: ${e.javaClass.simpleName}")
+            drain()
+            return START_STICKY
+        }
+        if (receivers.isEmpty()) {
+            // Nobody is paired, so there is nothing to forward, report or obey.
+            // A phone that was never set up should not carry a notification.
+            listen(emptyList())
+            StatusAlarm.cancel(this)
+            // What was captured for someone since removed goes to nobody,
+            // and above all not to whoever is paired next.
+            runCatching { worker.execute { runCatching { outbox.abandonPending("no_receiver") } } }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        listen(receivers)
+        when (intent?.action) {
+            ACTION_SILENCE -> {
+                Buzzer.silence(this)
+                getSystemService(NotificationManager::class.java)?.cancel(RING_NOTIFICATION_ID)
+            }
+            ACTION_STATUS -> {
+                report(receivers, ack = null)
+                listeners.values.forEach { listener -> side.execute { runCatching { listener.sweep() } } }
+            }
+            // Someone was just paired or removed. The new one should see this
+            // phone alive at once, not at the next alarm.
+            ACTION_RELOAD -> report(receivers, ack = null)
+            ACTION_TEST -> sendTest(receivers)
+        }
         drain()
         // Restart if killed, but without redelivering the intent: the work to do
         // is whatever is in the outbox, not whatever this particular intent said.
@@ -80,7 +154,11 @@ class ForwarderService : Service() {
     }
 
     override fun onDestroy() {
-        worker.shutdownNow()
+        listen(emptyList())
+        side.shutdownNow()
+        sends.shutdownNow()
+        // Not shutdownNow: giving up queued rows may still be waiting to run.
+        worker.shutdown()
         super.onDestroy()
     }
 
@@ -103,20 +181,20 @@ class ForwarderService : Service() {
                     if (batch.isEmpty()) break
 
                     for (message in batch) {
-                        val route = settings.routeFor(message.iccid)
-                        if (route == null || route.receivers.isEmpty()) {
-                            // Known SIM, nobody paired to it yet. Leave it
-                            // queued: the owner may still be finishing pairing,
-                            // and discarding it would lose a real message.
-                            outbox.markFailed(message.id, "no_receiver", System.currentTimeMillis())
-                            continue
-                        }
-
                         // Every Receiver must have it before the row is done.
                         // Marking sent on partial delivery would silently drop
                         // a second reader's copy.
                         val results = try {
-                            deposit(message, route)
+                            val readers = settings.receiversFor(message.iccid)
+                            // A refusal is for the one who asked; a send is for everyone of that SIM.
+                            val receivers = message.sent?.onlyFor?.let { only -> settings.receivers().filter { it.id == only } } ?: readers
+                            if (receivers.isEmpty()) {
+                                // Whoever read this SIM was removed after the
+                                // message was captured. It has nowhere to go.
+                                outbox.markDead(message.id, "no_receiver")
+                                continue
+                            }
+                            deposit(message, receivers)
                         } catch (e: Exception) {
                             // Fail this one row, or it would stop the queue
                             // behind it.
@@ -190,24 +268,276 @@ class ForwarderService : Service() {
     }
 
     /** Seals one message to each of the SIM's Receivers and leaves it at the bridges. */
-    private fun deposit(message: PendingMessage, route: SimRoute): List<DepositResult> {
+    private fun deposit(message: PendingMessage, receivers: List<Receiver>): List<DepositResult> {
         val id = Payload.wireId(
             settings.installSalt(),
             Outbox.dedupeKey(
-                CapturedMessage(message.iccid, message.sender, message.body, message.receivedAt),
+                CapturedMessage(message.iccid, message.sender, message.body, message.receivedAt, message.kind, message.sent),
             ),
         )
+        val isSms = message.kind == CapturedMessage.KIND_SMS
         val payload = Payload(
             id = id,
-            sim = route.label,
+            sim = SimRegistry(this).labelFor(message.iccid),
             from = message.sender,
             body = message.body,
-            code = MessageClassifier.extractCode(message.body),
+            code = if (isSms) MessageClassifier.extractCode(message.body) else null,
             at = message.receivedAt,
+            kind = message.kind.takeUnless { isSms },
+            simKey = message.iccid,
+            ok = message.sent?.ok,
+            why = message.sent?.why,
+            by = message.sent?.by,
+            name = nameOf(message.sender),
         ).encode()
 
-        return route.receivers.map { receiver ->
-            client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload))
+        // One bit a bridge learns: this one is not urgent. It already sees
+        // when a message passes; what it said stays sealed. Nobody needs
+        // waking to be told what they themselves just sent.
+        val quiet = message.sent != null || (isSms && MessageClassifier.looksLikeAd(message.body))
+        return receivers.map { receiver ->
+            client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload), quiet = quiet)
+        }
+    }
+
+    /** Starts a listener for each Receiver that has none, and stops those whose Receiver is gone. */
+    private fun listen(receivers: List<Receiver>) {
+        val wanted = receivers.associateBy { it.id }
+        listeners.keys.filter { it !in wanted }.forEach { listeners.remove(it)?.stop() }
+        val bridges = runCatching { settings.bridges }.getOrDefault(Settings.SEED_BRIDGES)
+        wanted.filterKeys { it !in listeners }.forEach { (id, receiver) ->
+            listeners[id] = CommandListener(bridges, receiver, ::obey, ObeyedCommands(this, id)).apply { start() }
+        }
+    }
+
+    /** Called on a listener's thread. */
+    private fun obey(receiver: Receiver, command: Command) {
+        Log.i(TAG, "command ${command.what}")
+        runCatching { awake?.acquire(AWAKE_MILLIS) }
+        when (command.what) {
+            Command.What.BUZZ -> {
+                Buzzer.ring(this, receiver.label)
+                notifyRing(receiver.label)
+            }
+            // Whoever made it ring has heard enough, or pressed by mistake.
+            Command.What.HUSH -> {
+                Buzzer.silence(this)
+                getSystemService(NotificationManager::class.java)?.cancel(RING_NOTIFICATION_ID)
+            }
+            Command.What.PING -> Unit
+            Command.What.SMS -> send(receiver, command, command.to, command.sim, command.text)
+            Command.What.DECLINE -> decline(receiver, command)
+        }
+        // The answer names the command, which is how the person who pressed
+        // the button knows this phone really did it. What came of a send
+        // arrives separately, as a record in the list.
+        report(listOf(receiver), ack = command.id)
+    }
+
+    /** Tells Receivers how this phone is doing (DECISIONS D26). */
+    private fun report(receivers: List<Receiver>, ack: String?) {
+        runCatching {
+            side.execute {
+                try {
+                    val battery = DeviceState.battery(this)
+                    val status = HostStatus(
+                        id = randomId(),
+                        at = System.currentTimeMillis(),
+                        every = StatusAlarm.EVERY_SECONDS,
+                        battery = battery.percent,
+                        charging = battery.charging,
+                        net = DeviceState.network(this),
+                        pending = outbox.pendingCount(),
+                        ack = ack,
+                    )
+                    // Only what will work: ending a call needs Android 9 and both permissions.
+                    val calls = runCatching { settings.calls }.getOrDefault(false) &&
+                        Build.VERSION.SDK_INT >= 28 &&
+                        checkSelfPermission(Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED &&
+                        checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED
+                    val maySend = checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
+                    receivers.forEach { stale ->
+                        // Read again: what a Receiver may do can have changed since its listener started.
+                        val receiver = runCatching { settings.receivers().firstOrNull { it.id == stale.id } }.getOrNull() ?: stale
+                        val can = buildList {
+                            if (receiver.canSend && maySend) add("sms")
+                            if (calls) add("calls")
+                        }
+                        client.deposit(
+                            receiver.boxId, status.id,
+                            ReceiverSealer.fromBase64Url(receiver.publicKey).seal(status.encode(can)),
+                            tag = HostStatus.TAG,
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "report failed: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Ends the call that is ringing, and tells the caller why if the Receiver
+     * gave words for it. Only the very call the Receiver saw, and only while
+     * the request is fresh: a decline that took a detour through a bridge the
+     * phone was not listening at must not hang up on whoever rings next.
+     */
+    private fun decline(receiver: Receiver, command: Command) {
+        val ringing = CallReceiver.current
+        val refusal = when {
+            !runCatching { settings.calls }.getOrDefault(false) -> SendPolicy.NOT_ALLOWED
+            ringing == null || ringing.number != command.to -> SendPolicy.NO_CALL
+            kotlin.math.abs(System.currentTimeMillis() - command.at) > DECLINE_FRESH_MILLIS -> SendPolicy.NO_CALL
+            // Only someone who is told of this SIM's calls can end one.
+            !receiver.reads(ringing.simKey) -> SendPolicy.NOT_ALLOWED
+            else -> null
+        }
+        if (refusal != null || ringing == null) {
+            Log.i(TAG, "decline refused: $refusal")
+            // Whoever chose words for the caller is told they were not sent.
+            if (command.text != null) record(receiver, command, command.to.orEmpty(), command.sim, command.text, ok = false, why = refusal ?: SendPolicy.NO_CALL)
+            return
+        }
+        val ended = runCatching {
+            if (Build.VERSION.SDK_INT >= 28 && checkSelfPermission(Manifest.permission.ANSWER_PHONE_CALLS) == PackageManager.PERMISSION_GRANTED) {
+                @Suppress("DEPRECATION") // The replacement is for apps that are the phone's dialler.
+                getSystemService(TelecomManager::class.java)?.endCall() ?: false
+            } else {
+                false
+            }
+        }.getOrDefault(false)
+        // A call that was not ended is still unanswered, and is reported as missed when it stops.
+        if (ended) ringing.handled = true
+        Log.i(TAG, "decline ended=$ended")
+        if (command.text != null) send(receiver, command, ringing.number, ringing.simKey, command.text)
+    }
+
+    /**
+     * Sends an SMS because a Receiver asked, if [SendPolicy] agrees, and
+     * records what came of it.
+     *
+     * On one thread, in order: the daily limit is a count, and two sends
+     * checked side by side would each see room for one more.
+     */
+    private fun send(receiver: Receiver, command: Command, to: String?, simKey: String?, text: String?) {
+        runCatching {
+            sends.execute {
+                try {
+                    val now = System.currentTimeMillis()
+                    val current = settings.receiversStrict().firstOrNull { it.id == receiver.id } ?: return@execute
+                    val ledger = SendLedger(this, settings.installSalt())
+                    val sim = simKey?.let { key -> SimRegistry(this).activeSims().firstOrNull { it.iccid == key } }
+                    val refusal = when {
+                        simKey == null || !current.reads(simKey) -> SendPolicy.NOT_ALLOWED
+                        checkSelfPermission(Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED -> SendPolicy.NO_PERMISSION
+                        sim == null -> SendPolicy.NO_SIM
+                        else -> SendPolicy.refusal(
+                            allowed = current.canSend,
+                            now = now,
+                            commandAt = command.at,
+                            to = to,
+                            text = text,
+                            lastHeardFrom = to?.let { ledger.lastHeardFrom(simKey, it) },
+                            sentAt = ledger.sentAt(current.id),
+                        )
+                    }
+                    if (refusal != null || sim == null || to == null || text == null || simKey == null) {
+                        Log.i(TAG, "send refused: $refusal")
+                        record(current, command, to.orEmpty(), simKey, text.orEmpty(), ok = false, why = refusal ?: SendPolicy.EMPTY)
+                        return@execute
+                    }
+                    // Counted before it goes, on this one thread, so the next check sees it.
+                    ledger.recordSent(current.id, now)
+                    SmsSender.send(this, sim.subscriptionId, to, text) { ok ->
+                        Log.i(TAG, "send ok=$ok")
+                        record(current, command, to, simKey, text, ok, if (ok) null else SendPolicy.FAILED)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "send: ${e.javaClass.simpleName}")
+                }
+            }
+        }
+    }
+
+    /**
+     * Queues the record of a send, or of a refusal, in the outbox, so it is
+     * delivered and retried like an SMS. A send goes to every Receiver of
+     * that SIM; a refusal only to the one who asked.
+     */
+    private fun record(by: Receiver, command: Command, number: String, simKey: String?, text: String, ok: Boolean, why: String?) {
+        try {
+            val sent = SentRecord(ok = ok, why = why, by = by.label, command = command.id, onlyFor = if (ok) null else by.id)
+            val key = simKey ?: by.sims?.firstOrNull() ?: SimRegistry(this).activeSims().firstOrNull()?.iccid.orEmpty()
+            outbox.enqueue(CapturedMessage(key, number, text, System.currentTimeMillis(), CapturedMessage.KIND_SENT, sent))
+            drain()
+        } catch (e: Exception) {
+            Log.e(TAG, "record: ${e.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Sends every Receiver a message that says it is a test, by the same path
+     * an SMS takes from the seal onwards. The owner presses a button and sees,
+     * on the phone, whether a bridge took it.
+     */
+    private fun sendTest(receivers: List<Receiver>) {
+        runCatching {
+            side.execute {
+                val ok = try {
+                    val id = randomId()
+                    val payload = Payload(
+                        id = id,
+                        sim = getString(R.string.test_sim),
+                        from = "EasyOTP",
+                        body = getString(R.string.test_body, settings.hostLabel),
+                        code = null,
+                        at = System.currentTimeMillis(),
+                    ).encode()
+                    receivers.map { receiver ->
+                        client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload))
+                    }.all { it is DepositResult.Accepted }
+                } catch (e: Exception) {
+                    Log.e(TAG, "test failed: ${e.javaClass.simpleName}")
+                    false
+                }
+                HostEvents.testFinished(ok, System.currentTimeMillis())
+            }
+        }
+    }
+
+    /** The contact's name for a number, when the owner lets names be sent. */
+    private fun nameOf(number: String): String? =
+        if (runCatching { settings.contacts }.getOrDefault(false)) ContactNames.lookup(this, number) else null
+
+    private fun randomId(): String =
+        ReceiverSealer.base64UrlEncode(ByteArray(WIRE_ID_BYTES).also { SecureRandom().nextBytes(it) })
+
+    private fun notifyRing(from: String) {
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        if (manager.getNotificationChannel(RING_CHANNEL_ID) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(RING_CHANNEL_ID, getString(R.string.ring_channel), NotificationManager.IMPORTANCE_HIGH),
+            )
+        }
+        val silence = PendingIntent.getService(
+            this, 0, Intent(this, ForwarderService::class.java).setAction(ACTION_SILENCE),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        runCatching {
+            manager.notify(
+                RING_NOTIFICATION_ID,
+                Notification.Builder(this, RING_CHANNEL_ID)
+                    .setContentTitle(getString(R.string.app_name))
+                    // Whoever picks the phone up should see why it rang.
+                    .setContentText(getString(R.string.ring_text, from))
+                    .setSmallIcon(android.R.drawable.stat_notify_more)
+                    // Tapping it, its button, or swiping it away all stop the ring.
+                    .setContentIntent(silence)
+                    .setDeleteIntent(silence)
+                    .addAction(Notification.Action.Builder(null, getString(R.string.ring_stop), silence).build())
+                    .setAutoCancel(true)
+                    .build(),
+            )
         }
     }
 
@@ -249,6 +579,29 @@ class ForwarderService : Service() {
         private const val TAG = "EasyOTP"
         private const val CHANNEL_ID = "easyotp.forwarder"
         private const val NOTIFICATION_ID = 1
+        private const val RING_CHANNEL_ID = "easyotp.ring"
+        const val RING_NOTIFICATION_ID = 2
+
+        /** Report on the phone now, and look at every bridge for commands. */
+        const val ACTION_STATUS = "ir.rhinocloud.easyotp.STATUS"
+
+        /** The list of paired Receivers changed. */
+        const val ACTION_RELOAD = "ir.rhinocloud.easyotp.RELOAD"
+
+        /** Someone at the phone wants the ring to stop. */
+        const val ACTION_SILENCE = "ir.rhinocloud.easyotp.SILENCE"
+
+        /** Send every Receiver a test message. */
+        const val ACTION_TEST = "ir.rhinocloud.easyotp.TEST"
+
+        /** Longer than one deposit can take; see BridgeClient's timeouts. */
+        private const val AWAKE_MILLIS = 60_000L
+
+        /** A decline older than this is for a call that has stopped ringing. */
+        private const val DECLINE_FRESH_MILLIS = 60_000L
+
+        /** The same length as an SMS's id; see Payload.wireId. */
+        private const val WIRE_ID_BYTES = 24
 
         /** Finished rows are history; the table must not grow without bound. */
         private const val ARCHIVE_RETENTION_MILLIS = 30L * 24 * 60 * 60 * 1000
@@ -259,13 +612,19 @@ class ForwarderService : Service() {
         /** Floor between drains, so a row that is always "due" cannot spin the loop. */
         private const val MIN_RETRY_DELAY_MILLIS = 1_000L
 
-        /** Called by the capture path and on boot. Safe to call repeatedly. */
-        fun wake(context: Context) {
-            val intent = Intent(context, ForwarderService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        /**
+         * Called by the capture path, on boot, by the alarm and by the screens.
+         * Safe to call repeatedly.
+         */
+        fun wake(context: Context, action: String? = null) {
+            val intent = Intent(context, ForwarderService::class.java).setAction(action)
+            try {
                 context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            } catch (e: Exception) {
+                // Android may refuse to start a foreground service from the
+                // background. A running service is unaffected, and what was
+                // captured is already stored; the next wake carries it.
+                Log.w(TAG, "wake refused: ${e.javaClass.simpleName}")
             }
         }
     }
