@@ -14,7 +14,7 @@ export interface SimHost {
   peerLabel: string;
   receiver: ReceiverOffer;
   /** Seals a line as an SMS and leaves it at every bridge. Resolves with each bridge's answer. */
-  sendSms(body: string, code: string | null, sim?: string): Promise<string[]>;
+  sendSms(body: string, code: string | null, sim?: string, from?: string): Promise<string[]>;
   /** Reports on itself now. */
   sendStatus(over?: Partial<Status>): Promise<void>;
   /** Starts reporting every `every` seconds and obeying commands. */
@@ -98,8 +98,8 @@ export async function simHost(opts: {
     picture: paired.picture,
     peerLabel: paired.peerLabel,
     receiver: paired.receiver,
-    sendSms: (body, code, sim = `${opts.label} SIM`) =>
-      deposit({ v: 2, id: randomKey(24), sim, from: "+98200", body, code, at: Date.now() }),
+    sendSms: (body, code, sim = `${opts.label} SIM`, from = "+98200") =>
+      deposit({ v: 2, id: randomKey(24), sim, from, body, code, at: Date.now() }),
     sendStatus,
     start() {
       if (!stopped) return;

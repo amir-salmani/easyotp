@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { SEED_BRIDGES } from "../bridges";
 import { randomKey } from "../ids";
 import { watch } from "../inbox";
+import { DEFAULT_SPAM, isSpam, type SpamSettings } from "../spam";
 import { Db, type PairedHost, type StoredMessage } from "./db";
 import { STRINGS, type Lang } from "./i18n";
 import { Install, isInstalled } from "./Install";
@@ -21,6 +22,9 @@ export function App() {
   const [failed, setFailed] = useState(false);
   const [hosts, setHosts] = useState<PairedHost[]>([]);
   const [messages, setMessages] = useState<StoredMessage[]>([]);
+  const [spam, setSpam] = useState<SpamSettings>(DEFAULT_SPAM);
+  const spamRef = useRef(spam);
+  spamRef.current = spam;
   const [pairing, setPairing] = useState(false);
   const [panel, setPanel] = useState(false);
   /** "<host id> <bridge>" to whether that bridge last answered for that Host. */
@@ -41,6 +45,7 @@ export function App() {
       setLang((await opened.lang()) ?? "fa");
       setHosts(await opened.hosts());
       setMessages(await opened.messages());
+      setSpam(await opened.spam());
       setDb(opened);
     })().catch(() => setFailed(true));
   }, []);
@@ -65,8 +70,11 @@ export function App() {
         onFresh: (fresh) => {
           void db.messages().then(setMessages);
           if (!document.hidden) return;
+          // Advertising arrives quietly. It is listed under Spam and announces nothing.
+          const wanted = fresh.filter((m) => !isSpam(m, spamRef.current));
+          if (wanted.length === 0) return;
           // Never the text of the SMS: a notification shows on a locked screen.
-          const title = STRINGS[langRef.current].notifyTitle(fresh[0]!.sim);
+          const title = STRINGS[langRef.current].notifyTitle(wanted[0]!.sim);
           if (shell) {
             shell.notify(title);
           } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
@@ -78,6 +86,11 @@ export function App() {
     return () => stops.forEach((stop) => stop());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [db, boxes]);
+
+  const changeSpam = (next: SpamSettings) => {
+    setSpam(next);
+    void db?.setSpam(next);
+  };
 
   const changeLang = (next: Lang) => {
     setLang(next);
@@ -163,6 +176,8 @@ export function App() {
         messages={messages}
         hosts={hosts}
         bridges={{ up: reachable, all: SEED_BRIDGES.length }}
+        spam={spam}
+        onSpam={changeSpam}
       />
       {panel && (
         <Panel
@@ -170,6 +185,8 @@ export function App() {
           lang={lang}
           hosts={hosts}
           counts={counts}
+          spamAuto={spam.auto}
+          onSpamAuto={(auto) => changeSpam({ ...spam, auto })}
           onClose={() => setPanel(false)}
           onLang={changeLang}
           onRename={async (host, name) => {

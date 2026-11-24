@@ -12,6 +12,7 @@ import { boxIdFrom, randomKey } from "../ids";
 import type { Identity } from "../inbox";
 import { newKeyPair, type Message, type Status } from "../open";
 import type { HostChannel } from "../pairing";
+import { DEFAULT_SPAM, type SpamSettings } from "../spam";
 import type { Lang } from "./i18n";
 
 /** Keys for one pairing. Made when a pairing starts, kept only if it is confirmed. */
@@ -159,6 +160,10 @@ export class Db {
       };
     });
   }
+
+  /** How this device sorts advertising; see spam.ts. Stays when messages are deleted. */
+  spam = async (): Promise<SpamSettings> => ({ ...DEFAULT_SPAM, ...(await run<Partial<SpamSettings> | undefined>(this.db, KV, "readonly", (tx) => tx.objectStore(KV).get("spam"))) });
+  setSpam = (settings: SpamSettings) => run(this.db, KV, "readwrite", (tx) => tx.objectStore(KV).put(settings, "spam"));
 
   deleteMessages = () => run(this.db, MESSAGES, "readwrite", (tx) => tx.objectStore(MESSAGES).clear());
 

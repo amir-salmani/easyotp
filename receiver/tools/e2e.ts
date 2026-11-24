@@ -165,6 +165,34 @@ async function main() {
   await page.getByRole("button", { name: "کپی کد" }).click();
   assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "48217365");
 
+  // Advertising is set aside by itself, and a code never is.
+  await mum.sendSms("جشنواره‌ی زمستانه! ۵۰٪ تخفیف\nshop.example.ir/y\nلغو11", null, "همراه اول", "SHOP-X");
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).waitFor();
+  assert.equal(await page.getByText("جشنواره‌ی زمستانه").count(), 0, "the advertisement is not among the messages");
+  await page.getByText("48217365", { exact: true }).waitFor();
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).click();
+  await page.getByText("خودکار جدا شد: به نظر تبلیغاتی می‌رسد.").waitFor();
+  assert.equal(await page.getByText("48217365", { exact: true }).count(), 0, "the code is not under spam");
+  await shot("5b-spam");
+  // "Not spam" brings it back, and says so.
+  await page.getByRole("button", { name: "هرزنامه نیست" }).click();
+  await page.getByText("پیام‌های «SHOP-X» دوباره در پیام‌ها می‌آید.").waitFor();
+  await page.getByRole("tab", { name: "پیام‌ها" }).click();
+  const ad = page.getByRole("listitem").filter({ hasText: "جشنواره‌ی زمستانه" });
+  await ad.waitFor();
+  // Marking it by hand moves everything from that sender; undo puts it back.
+  await ad.getByRole("button", { name: "هرزنامه است" }).click();
+  await page.getByText("از این پس پیام‌های «SHOP-X» در هرزنامه می‌آید.").waitFor();
+  assert.equal(await ad.count(), 0);
+  await shot("5c-marked-spam");
+  await page.getByRole("button", { name: "برگرداندن" }).click();
+  await ad.waitFor();
+  await ad.getByRole("button", { name: "هرزنامه است" }).click();
+  await page.getByRole("tab", { name: "هرزنامه (۱)" }).waitFor();
+  // The next one from that sender goes straight there, advertisement or not.
+  await mum.sendSms("سلام، سفارش شما آماده است", null, "همراه اول", "shop-x");
+  await page.getByRole("tab", { name: "هرزنامه (۲)" }).waitFor();
+
   // 6. A second Host, with its own keys and its own box.
   await page.getByRole("button", { name: "فرستنده‌ها و تنظیمات" }).click();
   await page.getByRole("button", { name: "اتصال به فرستنده‌ی دیگر" }).click();

@@ -120,6 +120,8 @@ export function Panel(props: {
   lang: Lang;
   hosts: PairedHost[];
   counts: Record<string, number>;
+  spamAuto: boolean;
+  onSpamAuto: (auto: boolean) => void;
   onClose: () => void;
   onLang: (lang: Lang) => void;
   onRename: (host: PairedHost, name: string) => void;
@@ -207,6 +209,14 @@ export function Panel(props: {
               <p>{notifyText}</p>
             )}
             <p className="text-muted-foreground">{t.notifyHint}</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <p className="font-semibold">{t.spamTitle}</p>
+            <label className="flex min-h-14 items-center gap-3 rounded-lg border border-border bg-card px-4 py-3 font-medium">
+              <input type="checkbox" className="size-6 shrink-0" checked={props.spamAuto} onChange={(e) => props.onSpamAuto(e.target.checked)} />
+              {t.spamAuto}
+            </label>
+            <p className="text-muted-foreground">{t.spamAutoHint}</p>
           </div>
           <Button variant="danger" onClick={() => setAskingDelete(true)}>
             {t.deleteMessages}

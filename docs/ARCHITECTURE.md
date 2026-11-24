@@ -137,6 +137,7 @@ there (D15).
 | `src/pairing.ts` | The Receiver's side of pairing (D24) |
 | `src/inbox.ts` | Collects from every bridge, shows a message once, acknowledges only after it is stored |
 | `src/commands.ts` | Seals a command to a Host and leaves it at every bridge |
+| `src/spam.ts` | Decides which messages are listed under Spam |
 | `src/app/` | The screens, and `db.ts`: keys, pairings and messages in IndexedDB on the device |
 
 Every paired Host gets its own key pair and its own box (D25), made when the
@@ -147,6 +148,14 @@ deletes its keys and its messages together.
 Above the messages is a monitor for each Host: whether it is alive, when it
 was last heard, its battery and network, and buttons to make it ring or report
 now (D26).
+
+**Spam.** Advertising is listed apart from the messages, so it does not bury
+the codes. A person marks a sender as spam, or not spam, under any message, and
+that covers everything the sender has sent and will send. Messages that carry
+the carriers' opt-out line, or a sale with a link, are set aside without being
+asked; one that carries a code never is. Sorting is done on the Receiver and
+changes only where a message is listed: the Host forwards everything, nothing
+is deleted, and spam raises no notification.
 
 Behind a gear on the message list is a side panel: the Hosts, with rename and
 remove; language, notifications and deleting all messages; and the help.
