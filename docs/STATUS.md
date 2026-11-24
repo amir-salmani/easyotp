@@ -43,7 +43,7 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 
 ## 2. Not built
 
-- Waking a closed Receiver: web push for the PWA, a background collector for the Android app.
+- Waking the Receiver's Android app when it is closed. The web app is woken by a push from bridge 2 (D30), built on 2026-11-24 and not yet seen arriving on a real iPhone.
 - The signed screen bundle and config loader, and the signed bridge list (D17, D19). The Host's screens ship inside the APK.
 - Per-brand guidance for the settings each manufacturer hides its app-killer behind (ARCHITECTURE 7).
 - The dormant self-update (D19).

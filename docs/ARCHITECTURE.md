@@ -160,8 +160,11 @@ is deleted, and spam raises no notification.
 Behind a gear on the message list is a side panel: the Hosts, with rename and
 remove; language, notifications and deleting all messages; and the help.
 
-A notification appears only while the app is open or in the background. Waking
-a closed app needs web push, which is not built.
+**Notifications.** While the app is open or in the background it notifies of
+a new message itself. With it closed, a bridge wakes it: the app leaves its
+browser's push address at the bridges (`src/push.ts`), bridge 2 sends an empty
+push when a message arrives, and the service worker says a message is waiting
+(D30). Spam raises neither.
 
 **As an Android app.** `receiver-apk/` packs the same build into an APK and
 shows it in a WebView. Inside it the screens skip the install step and the

@@ -67,6 +67,14 @@ it, one that renames a side and one that changes the nonce.
 message again. The Receiver shows a message once per id, and refuses a message
 whose id in the seal differs from the id it was delivered under.
 
+**A9. A push service** (Apple, Google or Mozilla, whichever the Receiver's
+browser uses). Only if the Receiver's owner turns notifications on (D30). It
+then learns that this device was woken and when, which is when a message
+arrived. It receives no content: the push is empty, and there is nothing in it
+to decrypt. The bridge that sends it learns which push address belongs to which
+box, and from a Host one more bit per message: whether it was marked as not
+worth waking anyone for. With notifications off, none of this exists.
+
 **A8. A forged update.** Screens and configuration are code and data that reach
 the phone through bridges. They are signed, and the core verifies the signature
 before use (D19). An APK update must carry the release key's signature, which

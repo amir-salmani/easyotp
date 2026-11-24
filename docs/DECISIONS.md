@@ -803,3 +803,65 @@ Two implementations of pairing can drift, so one pairing is written down
 
 **Not built yet:** fetching and verifying a signed screen build (D19). Today
 the build is inside the APK.
+
+---
+
+## D30 — A bridge wakes a closed Receiver with an empty push (2026-11-24)
+
+**Chosen:** a Receiver with notifications on leaves, at each bridge and for
+each Host's box, the address its browser was given for push messages. When a
+message arrives for that box, a bridge that can push sends that address a push
+with nothing in it. The Receiver's service worker shows "a new SMS has arrived"
+and the Receiver collects and opens the message, as before, when it is opened.
+
+| Part | What it does |
+|---|---|
+| `POST /v2/box/<id>/push`, `DELETE` | leave an address, take it back. Needs the box key |
+| Allowed addresses | only the push services of the browsers; anything else is refused |
+| Reports | never pushed: a tagged message wakes nobody |
+| `quiet` on a deposit | a Host marks what reads as advertising; a bridge does not push for it |
+| An address not renewed for sixty days, or one the push service calls gone | forgotten |
+
+**Rejected:** a push that carries the sealed message, opened by the service
+worker; a push that names the SIM or the sender; the Host pushing directly;
+keeping the Receiver's request open in the background; a separate push server.
+
+**Why:** a code is useless ten minutes late, and until now a Receiver that was
+not open received nothing. A browser will wake a closed web app only through
+its maker's push service, so something has to call that service when a message
+arrives, and the bridge is the one thing that is there at that moment.
+
+**Empty on purpose.** The push says only "look". A push with content would
+mean a second key and a second place a message can be opened, in a service
+worker with a few seconds to live, and it would hand the push service a
+ciphertext per message. The notification cannot name the SIM, and that is the
+price: the lock screen says a message came, never from whom.
+
+**The bridge holds a signing key, and it opens nothing.** A push service
+accepts a push only from the application that the address was made for, proved
+by a signature (VAPID). That key is the bridge's, has nothing to do with any
+Receiver's key, and a leak of it lets someone send empty notifications.
+
+**Only bridge 2 pushes.** Bridge 1 is run where it is told to reach nothing
+outside (BRIDGES), and could not reach Apple from inside Iran anyway. It
+answers 404 to an address and the Receiver moves on. A message that reached
+only bridge 1 therefore wakes nobody; it is collected when the Receiver is
+next opened.
+
+**Advertising.** The Receiver sorts advertising under Spam and stays quiet
+about it, but it is the bridge that decides to wake a closed Receiver, and a
+bridge cannot read. So the Host marks such a message `quiet`. That is one bit
+about a message that a bridge did not have before. A sender the person marked
+as spam by hand is not covered: only the Receiver knows that list.
+
+**This also settles the cost of a Receiver left open** (BRIDGES): with a push
+to rely on, nobody needs to hold a request to bridge 2 for hours.
+
+**Costs:** the push service learns when a message arrived, and the bridge
+which address belongs to which box (THREAT-MODEL A9). Both only for a Receiver
+whose owner turned notifications on.
+
+**Built:** the bridge's side on Workers, the Receiver web app's side, the
+Host's `quiet` mark. **Unverified:** delivery to a real iPhone. **Not built:**
+the same for the Receiver's Android app, where a web view has no push; and a
+Receiver that stops holding its request open once push is known to work.
