@@ -26,6 +26,9 @@ import java.io.ByteArrayInputStream
  * of them reliably.
  *
  * @param assetRoot the folder under assets/ that holds the build.
+ * The screens never navigate away: a link out would replace the app with a
+ * web page that inherits its window.
+ *
  * @param network whether the screens may talk to the network themselves. The
  *   Receiver's must, to reach the bridges. The Host's never do: everything the
  *   Host sends goes through its native code, and a screen that cannot make a
@@ -35,6 +38,13 @@ class WebShell(
     private val context: Context,
     private val assetRoot: String,
     private val network: Boolean,
+    /**
+     * Android killed the page's process to free memory. The WebView it
+     * belonged to cannot be used again, so the caller starts a new window.
+     */
+    private val onGone: () -> Unit,
+    /** A link that leads out of the app, for the caller to hand to a browser. Null drops such links. */
+    private val onExternalLink: ((Uri) -> Unit)? = null,
 ) {
 
     @SuppressLint("SetJavaScriptEnabled") // The screens are this app's own, read from its own APK.
@@ -89,13 +99,16 @@ class WebShell(
             return if (network) null else refused()
         }
 
-        /** The screens never navigate away. A link out would replace the app with a web page. */
-        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
-            !(request.url.scheme == "https" && request.url.host == HOST)
+        override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
+            val url = request.url
+            if (url.scheme == "https" && url.host == HOST) return false
+            if (url.scheme == "https" && request.hasGesture()) onExternalLink?.invoke(url)
+            return true
+        }
 
-        /** Android killed the page's process to free memory. Start it again instead of crashing with it. */
+        /** Returning true keeps the app alive; the window is then replaced. */
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
-            view.loadUrl("$ORIGIN/$startPage")
+            onGone()
             return true
         }
     }

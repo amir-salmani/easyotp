@@ -30,7 +30,13 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         web = WebView(this)
-        val shell = WebShell(this, assetRoot = "app", network = true)
+        val shell = WebShell(
+            this, assetRoot = "app", network = true,
+            // If Android kills the page's process, this window starts again.
+            onGone = ::recreate,
+            // The link to the source code opens in the phone's browser.
+            onExternalLink = { url -> runCatching { startActivity(Intent(Intent.ACTION_VIEW, url)) } },
+        )
         setContentView(shell.frame(web))
         web.addJavascriptInterface(ShellApi(), "EasyOtpShell")
         shell.attach(web)
