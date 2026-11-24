@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, BellRing, Check, ChevronDown, Languages, Send, Settings, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BatteryWarning, BellOff, BellRing, Check, ChevronDown, ChevronLeft, ChevronRight, Languages, Send, Settings, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { faDigits, type Lang } from "../app/i18n";
 import { Alert, Button, Card, PictureCard, Screen } from "../app/ui";
@@ -28,8 +28,11 @@ export function HostApp({ native }: { native: Native }) {
   const [state, setState] = useState<HostState>(() => read(native));
   const [open, setOpen] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  /** The gear's panel: everything that is set once and then left alone. */
-  const [panel, setPanel] = useState(false);
+  /**
+   * Which sheet is open. The gear is the phone's own settings and the help;
+   * tapping a Receiver opens that Receiver and nothing else. Two doors, two rooms.
+   */
+  const [panel, setPanel] = useState<"settings" | "receiver" | null>(null);
   const t = HOST_STRINGS[lang];
 
   useEffect(() => {
@@ -49,7 +52,7 @@ export function HostApp({ native }: { native: Native }) {
     const back = () => {
       if (state.ring) native.stopRing();
       else if (state.pair) native.pairCancel();
-      else if (panel) setPanel(false);
+      else if (panel) setPanel(null);
       else native.exit();
     };
     window.addEventListener(BACK, back);
@@ -66,7 +69,7 @@ export function HostApp({ native }: { native: Native }) {
         <span className="text-base font-medium text-muted-foreground">{t.role}</span>
       </span>
       {ready ? (
-        <button onClick={() => setPanel(true)} aria-label={t.menu} className="inline-flex size-12 items-center justify-center rounded-lg">
+        <button onClick={() => setPanel("settings")} aria-label={t.menu} className="inline-flex size-12 items-center justify-center rounded-lg">
           <Settings aria-hidden size={26} strokeWidth={2} />
         </button>
       ) : (
@@ -114,7 +117,7 @@ export function HostApp({ native }: { native: Native }) {
           // What this person may read and do is set in the panel, so it opens there.
           if (id) {
             setOpen(id);
-            setPanel(true);
+            setPanel("receiver");
           }
         }}
       />
@@ -128,11 +131,11 @@ export function HostApp({ native }: { native: Native }) {
     <Setup t={t} lang={lang} header={header} state={state} native={native}>
       <Home t={t} lang={lang} header={header} state={state} native={native} notice={notice} clearNotice={() => setNotice(null)} onManage={(id) => {
         setOpen(id);
-        setPanel(true);
+        setPanel("receiver");
       }} />
       {/* A ring is said over everything, and a dialog would sit on top of it. */}
       {panel && !state.ring && (
-        <HostPanel t={t} lang={lang} state={state} native={native} open={open} setOpen={setOpen} onLang={setLang} onClose={() => setPanel(false)} />
+        <HostPanel t={t} lang={lang} state={state} native={native} only={panel === "receiver" ? open : null} onLang={setLang} onClose={() => setPanel(null)} />
       )}
     </Setup>
     </>
@@ -287,7 +290,7 @@ function Home(props: {
                 </span>
                 <span className="block text-muted-foreground">{t.since(date(r.pairedAt))}</span>
               </span>
-              <Settings aria-hidden size={22} className="shrink-0 text-muted-foreground" />
+              {lang === "fa" ? <ChevronLeft aria-hidden size={22} className="shrink-0 text-muted-foreground" /> : <ChevronRight aria-hidden size={22} className="shrink-0 text-muted-foreground" />}
             </button>
           ))}
         </section>
@@ -332,23 +335,27 @@ function Switch(props: { t: HostStrings; native: Native; label: string; hint: st
 }
 
 /**
- * Behind the gear: who is connected and what each may do, what the phone
- * shares, its name and language, a test, and the help. The home screen stays
- * as it is on a phone nobody touches: a status and a list.
+ * The side sheet, in one of two forms.
+ *
+ * With `only` set it is one Receiver: which SIMs it reads, whether it may
+ * send, and disconnecting it. Without, it is the gear: what the phone shares,
+ * its name and language, Android's permissions, a test, and the help. The
+ * home screen stays as it is on a phone nobody touches: a status and a list.
  */
 function HostPanel(props: {
   t: HostStrings;
   lang: Lang;
   state: HostState;
   native: Native;
-  open: string | null;
-  setOpen: (id: string | null) => void;
+  /** The id of the one Receiver to show, or null for the phone's settings. */
+  only: string | null;
   onLang: (lang: Lang) => void;
   onClose: () => void;
 }) {
-  const { t, lang, state, native, open, setOpen } = props;
+  const { t, lang, state, native } = props;
+  const receiver = props.only ? state.receivers.find((r) => r.id === props.only) : undefined;
   const ref = useRef<HTMLDialogElement>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   const [name, setName] = useState(state.label);
   const [testing, setTesting] = useState<number | null>(null);
   const date = (at: number) => new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "medium" }).format(at);
@@ -356,6 +363,12 @@ function HostPanel(props: {
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+
+  // The Receiver this sheet was about is gone: disconnected here, a moment ago.
+  const gone = props.only !== null && !receiver;
+  useEffect(() => {
+    if (gone) ref.current?.close();
+  }, [gone]);
 
   // A test is finished when the phone reports one newer than the press.
   const tested = testing !== null && state.test !== null && state.test.at >= testing;
@@ -381,76 +394,56 @@ function HostPanel(props: {
     >
       <div className="flex min-h-full flex-col gap-8 px-4 py-6">
         <div className="flex items-center justify-between">
-          <h2 className="text-2xl font-bold">{t.menu}</h2>
+          <h2 dir="auto" className="text-2xl font-bold">
+            {props.only ? (receiver?.label ?? "") : t.menu}
+          </h2>
           <button onClick={() => ref.current?.close()} aria-label={t.close} className="inline-flex size-12 items-center justify-center rounded-lg">
             <X aria-hidden size={24} strokeWidth={2} />
           </button>
         </div>
 
-        <Section title={t.receivers}>
-          {state.receivers.length === 0 && <p className="text-muted-foreground">{t.noneBody}</p>}
-          {state.receivers.map((r) => (
-            <Card key={r.id} className="flex flex-col gap-3">
-              <button
-                className="flex min-h-12 w-full items-center justify-between gap-3 text-start"
-                aria-expanded={open === r.id}
-                onClick={() => {
-                  setRemoving(null);
-                  setOpen(open === r.id ? null : r.id);
-                }}
-              >
-                <span>
-                  <span dir="auto" className="block text-lg font-semibold">
-                    {r.label || t.receivers}
-                  </span>
-                  <span className="block text-muted-foreground">{t.since(date(r.pairedAt))}</span>
-                </span>
-                <ChevronDown aria-hidden size={22} className={`shrink-0 transition-transform ${open === r.id ? "rotate-180" : ""}`} />
-              </button>
-              {open === r.id && (
+        {receiver && (
+          <>
+            <p className="text-muted-foreground">{t.since(date(receiver.pairedAt))}</p>
+            {state.sims.length > 1 && (
+              <fieldset className="flex flex-col gap-2">
+                <legend className="mb-2 font-semibold">{t.simsTitle}</legend>
+                {state.sims.map((sim) => (
+                  <label key={sim.key} className="flex min-h-12 items-center gap-3 rounded-lg border border-border bg-card px-4">
+                    <input
+                      type="checkbox"
+                      className="size-6 shrink-0"
+                      checked={receiver.sims === null || receiver.sims.includes(sim.key)}
+                      onChange={() => toggleSim(receiver.id, receiver.sims, sim.key)}
+                    />
+                    <span dir="auto">{sim.name}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            <Switch t={t} native={native} label={t.canSend} hint={t.canSendHint} on={receiver.canSend} granted={state.perms.send} what="send" onChange={(on) => native.setReceiverCanSend(receiver.id, on)} />
+            <div className="mt-auto flex flex-col gap-3">
+              {removing ? (
                 <>
-                  {state.sims.length > 1 && (
-                    <fieldset className="flex flex-col gap-2">
-                      <legend className="mb-2 font-medium">{t.simsTitle}</legend>
-                      {state.sims.map((sim) => (
-                        <label key={sim.key} className="flex min-h-12 items-center gap-3 rounded-lg border border-border px-4">
-                          <input type="checkbox" className="size-6 shrink-0" checked={r.sims === null || r.sims.includes(sim.key)} onChange={() => toggleSim(r.id, r.sims, sim.key)} />
-                          <span dir="auto">{sim.name}</span>
-                        </label>
-                      ))}
-                    </fieldset>
-                  )}
-                  <Switch t={t} native={native} label={t.canSend} hint={t.canSendHint} on={r.canSend} granted={state.perms.send} what="send" onChange={(on) => native.setReceiverCanSend(r.id, on)} />
-                  {removing === r.id ? (
-                    <>
-                      <p className="font-medium">{t.removeAsk(r.label)}</p>
-                      <Button variant="danger" onClick={() => native.removeReceiver(r.id)}>
-                        {t.removeYes}
-                      </Button>
-                      <Button variant="secondary" onClick={() => setRemoving(null)}>
-                        {t.no}
-                      </Button>
-                    </>
-                  ) : (
-                    <Button variant="danger" onClick={() => setRemoving(r.id)}>
-                      {t.remove}
-                    </Button>
-                  )}
+                  <p className="font-medium">{t.removeAsk(receiver.label)}</p>
+                  <Button variant="danger" onClick={() => native.removeReceiver(receiver.id)}>
+                    {t.removeYes}
+                  </Button>
+                  <Button variant="secondary" onClick={() => setRemoving(false)}>
+                    {t.no}
+                  </Button>
                 </>
+              ) : (
+                <Button variant="danger" onClick={() => setRemoving(true)}>
+                  {t.remove}
+                </Button>
               )}
-            </Card>
-          ))}
-          <Button
-            variant="secondary"
-            onClick={() => {
-              ref.current?.close();
-              native.pairStart();
-            }}
-          >
-            {state.receivers.length ? t.connectAnother : t.connect}
-          </Button>
-        </Section>
+            </div>
+          </>
+        )}
 
+        {!props.only && (
+          <>
         <Section title={t.shareTitle}>
           <Switch t={t} native={native} label={t.callsOn} hint={t.callsHint} on={state.calls} granted={state.perms.calls} what="calls" onChange={(on) => native.setCalls(on)} />
           <Switch t={t} native={native} label={t.contactsOn} hint={t.contactsHint} on={state.contacts} granted={state.perms.contacts} what="contacts" onChange={(on) => native.setContacts(on)} />
@@ -550,6 +543,8 @@ function HostPanel(props: {
         <p className="text-center text-muted-foreground" dir="auto">
           {t.version(state.version)}
         </p>
+          </>
+        )}
       </div>
     </dialog>
   );

@@ -46,6 +46,7 @@ interface HostState {
   sims: Array<{ key: string; name: string }>;
   pair: null | { stage: string; code: string; sas: string | null; peer: string | null };
   test: null | { ok: boolean; at: number };
+  ring: null | { from: string };
 }
 const state = (page: Page) => page.evaluate(() => JSON.parse((window as any).EasyOtpNative.state())) as Promise<HostState>;
 
@@ -143,17 +144,30 @@ try {
   if (sms.code !== text.slice(-5)) throw new Error(`code read as ${sms.code}`);
   step(`an SMS from ${sms.from} on "${sms.sim}" arrived, code ${sms.code}`);
 
-  // The test button.
+  // Two sheets: a Receiver's own, which opened by itself after the pairing, and the gear's.
+  const sheet = page.locator("dialog");
+  const close = async () => {
+    if (await sheet.isVisible()) await sheet.getByRole("button", { name: "بستن" }).click();
+    await sheet.waitFor({ state: "detached" });
+  };
+  const gear = async () => (await close(), page.getByRole("button", { name: "تنظیمات و راهنما" }).click());
+  const receiverSheet = async () => (await close(), page.getByRole("main").getByRole("button", { name: /emulator-check/ }).click());
+
+  // The test button, behind the gear.
+  await gear();
   await page.getByRole("button", { name: "فرستادن پیام آزمایشی" }).click();
   await until("the test message", async () => (await collect(), [...seen.values()].find((m) => m.from === "EasyOTP")), 90_000);
   if (!(await until("the phone to report the test", async () => (await state(page)).test))?.ok) throw new Error("the phone says the test failed");
   step("the test message arrived");
 
   // The two optional powers, switched on at the phone as its owner would.
-  await page.getByLabel("بتواند از این گوشی پیامک بفرستد").check();
-  await page.getByLabel("گیرنده‌ها از تماس‌ها باخبر شوند و بتوانند آن را رد کنند").check();
+  // Android's own questions are answered first, with adb: its dialog would
+  // cover the app and stop the page while the next switch is being pressed.
   for (const permission of ["SEND_SMS", "READ_CALL_LOG", "ANSWER_PHONE_CALLS"]) adb("shell", "pm", "grant", APP, `android.permission.${permission}`);
   await page.evaluate(() => window.dispatchEvent(new Event("easyotp:change")));
+  await page.getByLabel("گیرنده‌ها از تماس‌ها باخبر شوند و بتوانند آن را رد کنند").check();
+  await receiverSheet();
+  await page.getByLabel("بتواند از این گوشی پیامک بفرستد").check();
   await sendCommand(SEED_BRIDGES, mine.host, "ping", steadyFetch);
   await until("the phone to say what this Receiver may ask", async () => (await collect(), ["sms", "calls"].every((c) => (status as Status | null)?.can?.includes(c))), 90_000);
   const record = (text: string) => [...seen.values()].find((m) => m.kind === "sent" && m.body === text);
@@ -192,9 +206,9 @@ try {
 
   // Disconnect, and nothing more is sent.
   // The row of someone just connected is already open.
-  // Everything about a Receiver is behind the gear, which opened by itself after the pairing.
-  if (!(await page.locator("dialog").isVisible())) await page.getByRole("button", { name: "تنظیمات و راهنما" }).click();
-  if (!(await page.getByRole("button", { name: "قطع اتصال" }).isVisible())) await page.locator("dialog").getByRole("button", { name: /emulator-check/ }).click();
+  // The ring covers every sheet until it ends, so wait it out before reaching for one.
+  await until("the ring to end", async () => !(await state(page)).ring, 40_000);
+  await receiverSheet();
   await page.getByRole("button", { name: "قطع اتصال" }).click();
   await page.getByRole("button", { name: "بله، قطع کن" }).click();
   await until("the Receiver to be removed", async () => (await state(page)).receivers.length === 0);
