@@ -59,7 +59,9 @@ const utf8 = (s: string) => new TextEncoder().encode(s);
 const encode = (m: Wire) => b64url(utf8(JSON.stringify(m)));
 /** Names are shown to a person, so they are short and carry no control characters. */
 const CONTROL = new RegExp("[\\u0000-\\u001f\\u007f\\u2028\\u2029]", "g");
-const cleanLabel = (x: unknown) => (typeof x === "string" ? x.replace(CONTROL, "").slice(0, MAX_LABEL) : "");
+/** Cutting at a fixed length can leave half of an emoji, which the two sides would then encode differently. */
+const HALF = /[\uD800-\uDBFF]$/;
+export const cleanLabel = (x: unknown) => (typeof x === "string" ? x.replace(CONTROL, "").slice(0, MAX_LABEL).replace(HALF, "") : "");
 
 function decode(data: string): Wire | null {
   try {
@@ -202,20 +204,25 @@ class Channel {
  * Every field on its own line, so no two different sets of fields can produce
  * the same bytes. Names are base64, so a name cannot contain a line break.
  */
-async function pictureOf(f: {
+export interface SasFields {
   code: string; hostNonce: string; receiverNonce: string; pk: string; box: string;
   oneTimeKey: string; hostLabel: string; receiverLabel: string;
-}): Promise<Picture> {
+}
+
+/** The bytes both pictures are drawn from. The Host app computes the same in `PairCodec.sas`. */
+export async function sasOf(f: SasFields): Promise<Uint8Array> {
   const lines = [
     "easyotp/pair-sas/v2", f.code, f.hostNonce, f.receiverNonce, f.pk, f.box, f.oneTimeKey,
     b64url(utf8(f.hostLabel)), b64url(utf8(f.receiverLabel)),
   ];
-  return pictureFrom(await sha256(lines.join("\n")));
+  return sha256(lines.join("\n"));
 }
 
-const commitmentOf = async (hostNonce: string) => b64url(await sha256("easyotp/pair-commit/v1", fromB64url(hostNonce)));
+const pictureOf = async (f: SasFields): Promise<Picture> => pictureFrom(await sasOf(f));
+
+export const commitmentOf = async (hostNonce: string) => b64url(await sha256("easyotp/pair-commit/v1", fromB64url(hostNonce)));
 /** Which offer a reveal answers, so a reveal left over from another attempt is ignored. */
-const offerId = async (offer: Offer) => b64url(await sha256("easyotp/pair-offer/v1", `${offer.enc}\n${offer.ct}`));
+export const offerId = async (offer: { enc: string; ct: string }) => b64url(await sha256("easyotp/pair-offer/v1", `${offer.enc}\n${offer.ct}`));
 
 export interface ReceiverOffer {
   publicKey: string;

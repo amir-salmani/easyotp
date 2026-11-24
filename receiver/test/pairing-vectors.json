@@ -1,0 +1,42 @@
+{
+  "note": "Made by receiver/tools/make-vectors.ts. Test keys, valid nowhere.",
+  "code": "04821357",
+  "slotId": "UNLFKAw-k8tFdZA-731otxSwuy0QoY3HaOzGJP3Ullo",
+  "hostNonce": "Pdv4L36MLW_b2i0wpc4Kbd1LJZVs0fpfFsjcjwCTTQU",
+  "commitment": "aryJHw9_vt3rm5fBaEsZ4RnhS3Th4sLNJ5picpHffeY",
+  "oneTime": {
+    "publicKey": "QO7GLCpghNW0sscmyTDiZ428fCZobX6Dk7_atPw47i4",
+    "privateKey": "wDwDKI0ZnBoul-QFYRwCDQwI8XNsPHUveOwguc9vCVU"
+  },
+  "receiver": {
+    "publicKey": "PHVreq0_GtlOe-wgf67lXVAyDRZzHPsSyRf3BzLuAVI",
+    "privateKey": "qK8iNXY08nSVcHkgTBPZv8ZgYStI_YAr0LJNfnEQdUA",
+    "boxKey": "646d7yr3gfesmpgRz0QPNQdFOADQ-754neMKqU8eesA",
+    "boxId": "5lErC3TWHHULwHz0r44iPGKz8hOSGBO-opUFQx_2RSU",
+    "label": "iPhone — Amir 📲",
+    "nonce": "sulBfvtJZOoQ1Bbxy1ddhg"
+  },
+  "hostLabel": "گوشیِ خانه‌ی مادربزرگ اتاق نشیمن طبقه‌ی",
+  "rawLabel": "گوشیِ خانه‌ی مادربزرگ اتاق نشیمن طبقه‌ی📱 است",
+  "offer": {
+    "enc": "l4GCrYLsCGOs0d7ewE9neztqF7Mm3KH5psOcXq6n-zk",
+    "ct": "djxvOxWW6lNvlnw16LpXt-fVNcwdcLPG1BqyFbONikcune9JehGSagQAoOthCbo6fr-7CnKfmcz46qohriZekwrs9ajosnWHjBvqDDw21IiD8Qh4LDGQQJfrZbuSsSQtKifaXgifzicT9JAOdMqYKyApuGdRfRsaTDrd0gfbFTcSIXC5JiEX2b_EnPV6K32J1jzRjsQ55zY5t6yM3eQyDQ96e_bMinvv6_uyr1LNgIwhCLOg"
+  },
+  "offerId": "uWTHDXyAyTNv-Nxu1YJYm7UuL3L2V2VH_aDGA8SI6zA",
+  "sas": "oyva9uCUSsh_ePOf6MB7Pu6mfYBW5u2UMRj95lHEy8Q",
+  "picture": {
+    "colour": 3,
+    "thing": 43
+  },
+  "command": {
+    "keys": {
+      "publicKey": "Z_4lQhjKZoChTSmm3HM6LOxWPEe4zuTFimbqyNMpBF8",
+      "privateKey": "mFHN9hgtFKudG7dMJjFkJy2Wouv3cDktoSwLXw-1VHo"
+    },
+    "id": "33wKxgH4O8euNVpqfWhiTb-0JqWX1V9R",
+    "cmd": "buzz",
+    "at": 1800000000000,
+    "enc": "qTyyeYJ8tUs-Lnqc8yW91bVSX9Lonx_RohdSeX2u3F8",
+    "ct": "RQyMW9NYvyej-8xO07tynt31b-F6auL4BtP-W4yPeq32EqyJROgrHLcENGnjEwKs4WnOdjQ7ZRkshIs-FfA0fcUO8YMlzcPviri5wrnGDMFRw7JNAhIIt5aJBqSNFNipKoTHVUxDqs5m"
+  }
+}

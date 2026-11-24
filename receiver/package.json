@@ -12,7 +12,8 @@
     "test": "vitest run",
     "fake-host": "esbuild tools/fake-host.ts --bundle --platform=node --format=esm --log-level=warning --outfile=dist-tools/fake-host.mjs && node dist-tools/fake-host.mjs",
     "e2e": "esbuild tools/e2e.ts --bundle --platform=node --format=esm --packages=external --log-level=warning --outfile=dist-tools/e2e.mjs && node dist-tools/e2e.mjs",
-    "live-check": "esbuild tools/live-check.ts --bundle --platform=node --format=esm --log-level=warning --outfile=dist-tools/live-check.mjs && node dist-tools/live-check.mjs"
+    "live-check": "esbuild tools/live-check.ts --bundle --platform=node --format=esm --log-level=warning --outfile=dist-tools/live-check.mjs && node dist-tools/live-check.mjs",
+    "make-vectors": "esbuild tools/make-vectors.ts --bundle --platform=node --format=esm --log-level=warning --outfile=dist-tools/make-vectors.mjs && node dist-tools/make-vectors.mjs"
   },
   "dependencies": {
     "@fontsource-variable/vazirmatn": "^5.3.0",
