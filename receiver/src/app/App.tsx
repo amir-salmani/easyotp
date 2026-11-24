@@ -83,7 +83,8 @@ export function App() {
           if (shell) {
             shell.notify(title);
           } else if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-            void navigator.serviceWorker?.ready.then((reg) => reg.showNotification(title, { tag: "easyotp", icon: "/icons/icon-192.png" }));
+            // Dated, so a push that wakes the worker a moment later leaves this more specific one in place.
+            void navigator.serviceWorker?.ready.then((reg) => reg.showNotification(title, { tag: "easyotp", icon: "/icons/icon-192.png", data: { at: Date.now() } }));
           }
         },
       }),

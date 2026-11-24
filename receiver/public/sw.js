@@ -88,6 +88,10 @@ const WAITING = {
 self.addEventListener("push", (event) => {
   event.waitUntil(
     (async () => {
+      // The app, open in the background, may have just said the same thing and
+      // named the SIM. A notification that is already up counts as shown.
+      const showing = await self.registration.getNotifications({ tag: "easyotp" }).catch(() => []);
+      if (showing.some((n) => Date.now() - (n.data?.at ?? 0) < 60_000)) return;
       const stored = await caches.open(PREFS).then((c) => c.match("/lang")).then((r) => r?.text()).catch(() => undefined);
       const lang = stored === "en" ? "en" : "fa";
       await self.registration.showNotification(WAITING[lang].title, {
