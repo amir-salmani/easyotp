@@ -43,9 +43,11 @@ class DistUpdater(private val context: Context, private val settings: Settings =
 
         val ui = index.optJSONObject("host-ui")
         val uiVersion = ui?.optLong("version") ?: 0L
-        if (uiVersion > Screens.newest(context) && (ui?.optInt("core") ?: Int.MAX_VALUE) <= Screens.CORE) {
+        // Newer than anything this phone has: the APK's own screens count too.
+        val have = maxOf(Screens.newest(context), Screens.builtIn(context))
+        if (uiVersion > have && (ui?.optInt("core") ?: Int.MAX_VALUE) <= Screens.CORE) {
             val bundle = firstAnswer(bridges, "host-ui")?.let { Dist.verify(it, "host-ui") } ?: return
-            if (bundle.core > Screens.CORE || bundle.version <= Screens.newest(context)) return
+            if (bundle.core > Screens.CORE || bundle.version <= have) return
             val dir = File(Screens.root(context), "${bundle.version}.part")
             dir.deleteRecursively()
             if (Dist.unpack(bundle.payload, dir) && dir.renameTo(File(Screens.root(context), bundle.version.toString()))) {
