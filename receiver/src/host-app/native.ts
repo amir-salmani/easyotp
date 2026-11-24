@@ -17,6 +17,8 @@ export type Brand = "xiaomi" | "huawei" | "oppo" | "vivo" | "samsung" | "asus";
 
 export interface HostState {
   version: string;
+  /** The version of the screens showing: built into the APK, or fetched later (D32). */
+  screens?: number;
   /** Set when this phone's maker hides an app-killer of its own; see BrandSetup.kt. */
   brand: Brand | null;
   /** What Receivers see this phone called. */
@@ -65,6 +67,8 @@ export interface Native {
   sendTest(): void;
   stopRing(): void;
   exit(): void;
+  /** The screens drew. A Host that tried new screens keeps them only after this. */
+  ready?(): void;
 }
 
 declare global {
@@ -72,6 +76,13 @@ declare global {
     EasyOtpNative?: Native;
   }
 }
+
+/**
+ * The version of this interface. Screens fetched without a new APK (D32) say
+ * which version they need, and a Host with an older one keeps the screens it
+ * was built with. Raise it when a method is added that the screens rely on.
+ */
+export const CORE = 1;
 
 /** The phone tells the screens to read the state again with this event. */
 export const CHANGE = "easyotp:change";

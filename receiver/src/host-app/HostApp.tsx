@@ -565,6 +565,8 @@ function HostPanel(props: {
 
         <p className="text-center text-muted-foreground" dir="auto">
           {t.version(state.version)}
+          {/* Screens change without a new APK (D32), so they are dated separately. */}
+          {state.screens ? ` · ${t.screens(new Intl.DateTimeFormat(lang === "fa" ? "fa-IR" : "en-GB", { dateStyle: "short", timeStyle: "short" }).format(state.screens * 1000))}` : ""}
         </p>
           </>
         )}

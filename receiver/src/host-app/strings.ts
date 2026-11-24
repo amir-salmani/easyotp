@@ -94,6 +94,7 @@ const fa = {
   phoneNameHint: "گیرنده‌ها این گوشی را با همین نام می‌بینند.",
   save: "ذخیره",
   version: (v: string) => `نسخه‌ی ${v}`,
+  screens: (when: string) => `صفحه‌ها از ${when}`,
   // Pairing
   pairTitle: "اتصال یک گیرنده",
   pairBody: "با کسی که قرار است پیامک‌ها را بگیرد تماس بگیرید و این کد را برایش بخوانید. او آن را در EasyOTP خودش وارد می‌کند.",
@@ -202,6 +203,7 @@ const en: typeof fa = {
   phoneNameHint: "Receivers see this phone under this name.",
   save: "Save",
   version: (v) => `Version ${v}`,
+  screens: (when) => `screens of ${when}`,
   pairTitle: "Connect a receiver",
   pairBody: "Call the person who will get the messages and read them this code. They type it into their own EasyOTP.",
   pairCode: "Connection code",
