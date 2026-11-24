@@ -179,3 +179,17 @@ describe("a flood of deposits to one box", () => {
   });
 });
 
+
+describe("the files a Host trusts", () => {
+  it("are served as signed, with an index of what is held", async () => {
+    // The bridge only carries them. What a Host checks is the signature.
+    const index = (await (await exports.default.fetch("https://bridge.test/v2/dist/index")).json()) as Record<string, { version: number }>;
+    expect(index.bridges!.version).toBeGreaterThan(0);
+    const list = (await (await exports.default.fetch("https://bridge.test/v2/dist/bridges")).json()) as { kind: string; version: number; sig: string };
+    expect(list.kind).toBe("bridges");
+    expect(list.version).toBe(index.bridges!.version);
+    expect(list.sig).toMatch(/^[\w-]{86}$/);
+    expect((await exports.default.fetch("https://bridge.test/v2/dist/anything-else")).status).toBe(404);
+    expect((await exports.default.fetch("https://bridge.test/v2/dist/bridges", { method: "POST" })).status).toBe(404);
+  });
+});

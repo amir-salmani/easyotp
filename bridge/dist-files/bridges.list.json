@@ -1,0 +1,7 @@
+{
+  "note": "The bridges every Host should use. Edit this, then run `npm run sign-dist -- bridges` in receiver/ (DECISIONS D32). Order is not preference: a Host uses all of them.",
+  "bridges": [
+    { "id": "arsalan", "baseUrl": "https://easyotp.arsalan.finlawgpt.ir" },
+    { "id": "cfworker", "baseUrl": "https://easyotp.cfworker.rhinocloud.ir" }
+  ]
+}
