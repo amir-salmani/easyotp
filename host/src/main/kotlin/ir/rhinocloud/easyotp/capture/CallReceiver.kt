@@ -68,10 +68,11 @@ class CallReceiver : BroadcastReceiver() {
         if (!settings.calls) return
         if (context.checkSelfPermission(Manifest.permission.READ_CALL_LOG) != PackageManager.PERMISSION_GRANTED) return
         val registry = SimRegistry(context)
-        // The SIM the call came in on. Android does not promise to say; with
-        // one SIM in the phone there is nothing to guess, and with two and no
-        // answer the call is left out rather than put under the wrong line.
-        val sim = registry.resolve(subscription) ?: registry.activeSims().singleOrNull()
+        // The SIM the call came in on. The broadcast rarely says, so the SIMs
+        // are asked which of them is ringing. With one SIM in the phone there
+        // is nothing to ask. If two could each be the one, the call is left
+        // out rather than put under the wrong line.
+        val sim = registry.resolve(subscription) ?: registry.ringingSim() ?: registry.activeSims().singleOrNull()
         if (sim == null) {
             Log.w(TAG, "call on an unknown SIM left out")
             return

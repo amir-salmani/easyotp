@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.telephony.SubscriptionManager
+import android.telephony.TelephonyManager
 
 /**
  * Resolves an incoming message to the SIM that received it.
@@ -68,6 +69,28 @@ class SimRegistry(private val context: Context) {
     fun resolve(subscriptionId: Int): SimIdentity? {
         if (subscriptionId == INVALID_SUBSCRIPTION_ID) return null
         return activeSims().firstOrNull { it.subscriptionId == subscriptionId }
+    }
+
+    /**
+     * The SIM that is ringing now, if exactly one is.
+     *
+     * The broadcast that says the phone is ringing does not say on which SIM:
+     * seen on a two-SIM phone with Android 16, where it carried the number and
+     * nothing else. Each SIM can be asked for its own call state, though, and
+     * that is asked here.
+     */
+    @Suppress("MissingPermission") // guarded on the first line
+    fun ringingSim(): SimIdentity? {
+        if (!hasPhoneStatePermission()) return null
+        val telephony = context.getSystemService(TelephonyManager::class.java) ?: return null
+        return activeSims().filter { sim ->
+            runCatching {
+                val own = telephony.createForSubscriptionId(sim.subscriptionId)
+                @Suppress("DEPRECATION") // On an instance made for one SIM, this is that SIM's state on every version.
+                val state = if (Build.VERSION.SDK_INT >= 31) own.callStateForSubscription else own.callState
+                state == TelephonyManager.CALL_STATE_RINGING
+            }.getOrDefault(false)
+        }.singleOrNull()
     }
 
     /**
