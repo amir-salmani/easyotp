@@ -17,3 +17,4 @@ json = { module = "org.json:json", version = "20260814" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }

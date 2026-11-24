@@ -17,4 +17,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "EasyOTP"
-include(":host")
+// host and receiver-apk are the two apps. shell is the little they share:
+// a WebView that shows screens bundled inside the APK.
+include(":host", ":receiver-apk", ":shell")
