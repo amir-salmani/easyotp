@@ -3,7 +3,8 @@
   Every dependency of the Android build, pinned by checksum (DECISIONS D11).
   A change of version, or a repository serving different bytes, fails the
   build. After a deliberate upgrade, regenerate with
-    ./gradlew --write-verification-metadata sha256 <the tasks CI runs>
+    ./gradlew, with the option write-verification-metadata set to sha256,
+    on the tasks CI runs,
   and add the Linux build of aapt2 by hand: this file is written on a Mac.
 -->
 <verification-metadata xmlns="https://schema.gradle.org/dependency-verification" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="https://schema.gradle.org/dependency-verification https://schema.gradle.org/dependency-verification/dependency-verification-1.4.xsd">
