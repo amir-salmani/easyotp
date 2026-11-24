@@ -52,15 +52,26 @@ data class Command(val id: String, val at: Long, val what: What) {
 }
 
 /**
+ * Which commands were already obeyed. Kept across restarts by the app: a
+ * Receiver leaves each command at every bridge, a bridge keeps one for two
+ * days, and a copy this phone could not reach to acknowledge would otherwise
+ * ring it again after a reboot.
+ */
+interface CommandMemory {
+    fun load(): List<String>
+    fun save(ids: List<String>)
+}
+
+/**
  * Opens the commands one Receiver sends.
  *
  * A command is obeyed once however many bridges deliver it, and only if the id
  * inside the seal is the id it arrived under: otherwise a bridge could replay
  * one old "ring" under new ids for ever.
  */
-class CommandInbox(private val keys: HpkeKeyPair) {
+class CommandInbox(private val keys: HpkeKeyPair, private val memory: CommandMemory? = null) {
 
-    private val seen = LinkedHashSet<String>()
+    private val seen = LinkedHashSet<String>(memory?.load().orEmpty())
 
     /** The command, or null if this is not one, is not for this key, or was already obeyed. */
     @Synchronized
@@ -78,6 +89,7 @@ class CommandInbox(private val keys: HpkeKeyPair) {
 
         if (!seen.add(command.id)) return null
         if (seen.size > REMEMBERED) seen.iterator().let { it.next(); it.remove() }
+        runCatching { memory?.save(seen.toList()) }
         return command
     }
 

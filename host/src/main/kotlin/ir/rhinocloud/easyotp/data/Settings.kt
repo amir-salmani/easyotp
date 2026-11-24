@@ -83,14 +83,14 @@ class Settings(
      * id a message travels under from meaning anything to a bridge; see
      * `Payload.wireId`.
      */
-    fun installSalt(): ByteArray {
+    fun installSalt(): ByteArray = synchronized(LOCK) {
         // Strict: a salt invented because the real one could not be read this
         // once would change the id of every message still in the queue.
         val stored = readStrict().optString(KEY_SALT)
         if (stored.isNotBlank()) return Base64.decode(stored, Base64.NO_WRAP)
         val fresh = ByteArray(SALT_BYTES).also { SecureRandom().nextBytes(it) }
         mutate { put(KEY_SALT, Base64.encodeToString(fresh, Base64.NO_WRAP)) }
-        return fresh
+        fresh
     }
 
     /** What Receivers see this phone called. Part of the pairing picture. */
@@ -110,6 +110,13 @@ class Settings(
 
     /** For showing. Unreadable settings read as nobody paired. */
     fun receivers(): List<Receiver> = receiversIn(read())
+
+    /**
+     * For deciding. Throws [SettingsUnreadable] rather than answer "nobody":
+     * the service stops itself when nobody is paired, and must not do that
+     * because the Keystore failed once.
+     */
+    fun receiversStrict(): List<Receiver> = receiversIn(readStrict())
 
     /**
      * Who gets a message from this SIM, for the capture and delivery paths.
@@ -196,13 +203,21 @@ class Settings(
      * every pairing because of one failed Keystore read. [clear] is the way to
      * start again on purpose.
      */
-    private fun mutate(block: JSONObject.() -> Unit) {
+    private fun mutate(block: JSONObject.() -> Unit) = synchronized(LOCK) {
         val next = readStrict().apply(block)
         val sealed = Base64.encodeToString(vault.seal(next.toString().toByteArray()), Base64.NO_WRAP)
         prefs.edit().putString(KEY_BLOB, sealed).apply()
     }
 
     companion object {
+        /**
+         * Every change is read, alter, write back, and the screens, the
+         * capture path and the service each hold their own instance. One lock
+         * for the process, or a change made between another's read and write
+         * is undone: a Receiver just removed would be paired again.
+         */
+        private val LOCK = Any()
+
         private const val KEY_BLOB = "sealed"
         private const val KEY_BRIDGES = "bridges"
         private const val KEY_RECEIVERS = "receivers"

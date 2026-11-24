@@ -98,23 +98,35 @@ class ForwarderService : Service() {
         // the work below is on other threads. Timed, so it cannot be leaked.
         runCatching { awake?.acquire(AWAKE_MILLIS) }
 
-        val receivers = runCatching { settings.receivers() }.getOrDefault(emptyList())
+        StatusAlarm.schedule(this)
+        val receivers = try {
+            settings.receiversStrict()
+        } catch (e: Exception) {
+            // The settings could not be opened this once. That is not "nobody
+            // is paired": keep whatever is running, send what is queued, and
+            // let the next wake read them again.
+            Log.w(TAG, "settings unreadable: ${e.javaClass.simpleName}")
+            drain()
+            return START_STICKY
+        }
         if (receivers.isEmpty()) {
             // Nobody is paired, so there is nothing to forward, report or obey.
             // A phone that was never set up should not carry a notification.
             listen(emptyList())
+            StatusAlarm.cancel(this)
+            // What was captured for someone since removed goes to nobody,
+            // and above all not to whoever is paired next.
+            runCatching { worker.execute { runCatching { outbox.abandonPending("no_receiver") } } }
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        StatusAlarm.schedule(this)
         listen(receivers)
         when (intent?.action) {
             ACTION_STATUS -> {
                 report(receivers, ack = null)
-                val all = listeners.values.toList()
-                side.execute { all.forEach { runCatching { it.sweep() } } }
+                listeners.values.forEach { listener -> side.execute { runCatching { listener.sweep() } } }
             }
             // Someone was just paired or removed. The new one should see this
             // phone alive at once, not at the next alarm.
@@ -130,7 +142,8 @@ class ForwarderService : Service() {
     override fun onDestroy() {
         listen(emptyList())
         side.shutdownNow()
-        worker.shutdownNow()
+        // Not shutdownNow: giving up queued rows may still be waiting to run.
+        worker.shutdown()
         super.onDestroy()
     }
 
@@ -265,7 +278,7 @@ class ForwarderService : Service() {
         listeners.keys.filter { it !in wanted }.forEach { listeners.remove(it)?.stop() }
         val bridges = runCatching { settings.bridges }.getOrDefault(Settings.SEED_BRIDGES)
         wanted.filterKeys { it !in listeners }.forEach { (id, receiver) ->
-            listeners[id] = CommandListener(bridges, receiver, ::obey).apply { start() }
+            listeners[id] = CommandListener(bridges, receiver, ::obey, ObeyedCommands(this, id)).apply { start() }
         }
     }
 

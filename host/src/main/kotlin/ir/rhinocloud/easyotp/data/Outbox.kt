@@ -181,6 +181,19 @@ class Outbox(context: Context, private val vault: KeyVault = KeyVault()) {
         helper.writableDatabase.update(TABLE, values, "id = ?", arrayOf(id.toString()))
     }
 
+    /**
+     * Gives up on everything still waiting. For when the last Receiver is
+     * removed: what was captured for them must not go to whoever is paired
+     * next.
+     */
+    fun abandonPending(reason: String): Int {
+        val values = ContentValues().apply {
+            put("state", STATE_DEAD)
+            put("last_error", reason)
+        }
+        return helper.writableDatabase.update(TABLE, values, "state = ?", arrayOf(STATE_PENDING))
+    }
+
     fun pendingCount(): Long =
         helper.readableDatabase.rawQuery(
             "SELECT COUNT(*) FROM $TABLE WHERE state = ?",

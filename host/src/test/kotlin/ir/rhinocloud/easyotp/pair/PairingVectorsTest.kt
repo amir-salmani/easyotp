@@ -2,6 +2,7 @@ package ir.rhinocloud.easyotp.pair
 
 import ir.rhinocloud.easyotp.net.Command
 import ir.rhinocloud.easyotp.net.CommandInbox
+import ir.rhinocloud.easyotp.net.CommandMemory
 import ir.rhinocloud.easyotp.net.Hpke
 import ir.rhinocloud.easyotp.net.HpkeKeyPair
 import org.json.JSONObject
@@ -89,6 +90,21 @@ class PairingVectorsTest {
 
         // The second bridge delivers the same command. The phone rings once.
         assertNull(inbox.accept(c.getString("id"), c.getString("enc"), c.getString("ct")))
+    }
+
+    @Test
+    fun `a command obeyed before a restart is not obeyed after it`() {
+        // A copy the phone could not acknowledge waits at the other bridge for
+        // two days. A reboot in between must not make the phone ring again.
+        val c = v.getJSONObject("command")
+        val keys = c.getJSONObject("keys").let { HpkeKeyPair(it.getString("publicKey"), it.getString("privateKey")) }
+        val disk = object : CommandMemory {
+            var ids = emptyList<String>()
+            override fun load() = ids
+            override fun save(ids: List<String>) { this.ids = ids }
+        }
+        assertNotNull(CommandInbox(keys, disk).accept(c.getString("id"), c.getString("enc"), c.getString("ct")))
+        assertNull(CommandInbox(keys, disk).accept(c.getString("id"), c.getString("enc"), c.getString("ct")))
     }
 
     @Test

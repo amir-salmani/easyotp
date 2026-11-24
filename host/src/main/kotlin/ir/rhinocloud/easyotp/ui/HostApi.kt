@@ -24,6 +24,7 @@ import ir.rhinocloud.easyotp.pair.PairedReceiver
 import ir.rhinocloud.easyotp.pair.PairingFailed
 import ir.rhinocloud.easyotp.service.ForwarderService
 import ir.rhinocloud.easyotp.service.HostEvents
+import ir.rhinocloud.easyotp.service.ObeyedCommands
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
@@ -148,10 +149,10 @@ class HostApi(private val activity: MainActivity) {
                     Log.e(TAG, "pairing: ${e.javaClass.simpleName}")
                     synchronized(LOCK) { if (session === mine) { mine.stage = Stage.FAILED; mine.reason = PairingFailed.UNREACHABLE } }
                 }
-                activity.changed()
+                HostEvents.changed()
             }
         }
-        activity.changed()
+        HostEvents.changed()
     }
 
     /**
@@ -184,14 +185,14 @@ class HostApi(private val activity: MainActivity) {
                 id = ""
             }
         }
-        activity.changed()
+        HostEvents.changed()
         return id
     }
 
     @JavascriptInterface
     fun pairCancel() {
         synchronized(LOCK) { session.also { session = null } }?.pairing?.cancel()
-        activity.changed()
+        HostEvents.changed()
     }
 
     /** @param sims a JSON array of SIM keys, or the text `null` for every SIM. */
@@ -204,6 +205,7 @@ class HostApi(private val activity: MainActivity) {
     @JavascriptInterface
     fun removeReceiver(id: String) = change {
         settings.removeReceiver(id)
+        ObeyedCommands.forget(context, id)
         ForwarderService.wake(context, ForwarderService.ACTION_RELOAD)
     }
 
@@ -217,7 +219,7 @@ class HostApi(private val activity: MainActivity) {
 
     private fun change(block: () -> Unit) {
         runCatching(block).onFailure { Log.e(TAG, "change: ${it.javaClass.simpleName}") }
-        activity.changed()
+        HostEvents.changed()
     }
 
     private fun label(): String = settings.hostLabel.ifBlank { PairCodec.cleanLabel(Build.MODEL) }

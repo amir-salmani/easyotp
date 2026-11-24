@@ -21,8 +21,9 @@ class CommandListener(
     private val bridges: List<Bridge>,
     private val receiver: Receiver,
     private val onCommand: (Receiver, Command) -> Unit,
+    memory: CommandMemory? = null,
 ) {
-    private val inbox = CommandInbox(receiver.commandKeys)
+    private val inbox = CommandInbox(receiver.commandKeys, memory)
     private val boxId = ir.rhinocloud.easyotp.pair.PairCodec.boxId(receiver.commandBoxKey)
     private val open = ConcurrentHashMap.newKeySet<HttpURLConnection>()
 
@@ -47,11 +48,16 @@ class CommandListener(
         open.forEach { runCatching { it.disconnect() } }
     }
 
-    /** Looks once at every bridge this is not already waiting at. Blocks; call off the main thread. */
+    /**
+     * Looks once at every bridge this is not already waiting at. A box that
+     * holds a command answers at once; an empty one would hold the request
+     * for most of a minute, so the look is cut short. Blocks for a few
+     * seconds per bridge; call off the main thread.
+     */
     fun sweep() {
         val waitingAt = current
         bridges.forEachIndexed { index, bridge ->
-            if (running && index != waitingAt) collect(bridge)
+            if (running && index != waitingAt) collect(bridge, SWEEP_TIMEOUT_MILLIS)
         }
     }
 
@@ -60,7 +66,7 @@ class CommandListener(
         try {
             while (running) {
                 val asked = System.nanoTime()
-                val got = collect(bridges[current])
+                val got = collect(bridges[current], READ_TIMEOUT_MILLIS)
                 if (got == null) {
                     failures++
                     current = (current + 1) % bridges.size
@@ -79,10 +85,15 @@ class CommandListener(
         }
     }
 
-    /** How many messages the bridge handed over, or null if it could not be asked. */
-    private fun collect(bridge: Bridge): Int? {
+    /**
+     * How many messages the bridge handed over, or null if it could not be
+     * asked or would not take the acknowledgement. The second matters: a
+     * bridge that keeps what it was told to drop hands it straight back, and
+     * without a pause that is a loop that never sleeps.
+     */
+    private fun collect(bridge: Bridge, readTimeoutMillis: Int): Int? {
         val url = "${bridge.baseUrl}/v2/box/$boxId"
-        val body = request(url, READ_TIMEOUT_MILLIS, null) ?: return null
+        val body = request(url, readTimeoutMillis, null) ?: return null
         val ids = mutableListOf<String>()
         try {
             val messages = JSONObject(body).getJSONArray("messages")
@@ -97,7 +108,9 @@ class CommandListener(
         }
         // Everything collected is acknowledged, readable or not, so junk left
         // in the box by someone who learned its id does not stay there.
-        if (ids.isNotEmpty()) request("$url/ack", POST_TIMEOUT_MILLIS, JSONObject().put("ids", JSONArray(ids)).toString())
+        if (ids.isNotEmpty()) {
+            request("$url/ack", POST_TIMEOUT_MILLIS, JSONObject().put("ids", JSONArray(ids)).toString()) ?: return null
+        }
         return ids.size
     }
 
@@ -132,6 +145,7 @@ class CommandListener(
 
         /** Longer than a bridge's longest hold. */
         const val READ_TIMEOUT_MILLIS = 75_000
+        const val SWEEP_TIMEOUT_MILLIS = 5_000
         const val RETRY_MILLIS = 2_000L
         const val MAX_BACKOFF_MILLIS = 60_000L
         const val MIN_POLL_MILLIS = 1_000L

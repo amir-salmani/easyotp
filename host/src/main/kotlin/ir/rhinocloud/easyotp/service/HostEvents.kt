@@ -12,12 +12,30 @@ object HostEvents {
     var lastTest: TestResult? = null
         private set
 
-    /** Set by the screen while it is showing. Called on any thread. */
     @Volatile
-    var onChange: (() -> Unit)? = null
+    private var listener: (() -> Unit)? = null
+
+    /** The window that is showing registers itself. A newer window replaces an older one. */
+    fun listen(onChange: () -> Unit) {
+        listener = onChange
+    }
+
+    /** A window that is going away. It must not silence the one that replaced it. */
+    fun forget(onChange: () -> Unit) {
+        if (listener === onChange) listener = null
+    }
+
+    /**
+     * Something the screens show may have changed. Reaches whichever window
+     * is showing now, which need not be the one that started the work.
+     * Called on any thread.
+     */
+    fun changed() {
+        listener?.invoke()
+    }
 
     fun testFinished(ok: Boolean, at: Long) {
         lastTest = TestResult(ok, at)
-        onChange?.invoke()
+        changed()
     }
 }

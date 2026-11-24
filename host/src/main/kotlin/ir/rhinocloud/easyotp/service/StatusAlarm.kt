@@ -35,15 +35,21 @@ class StatusAlarm : BroadcastReceiver() {
         /** Sets the next alarm, replacing any already set. Safe to call repeatedly. */
         fun schedule(context: Context) {
             val alarms = context.getSystemService(AlarmManager::class.java) ?: return
-            val intent = PendingIntent.getBroadcast(
-                context, 0, Intent(context, StatusAlarm::class.java),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
             alarms.setAndAllowWhileIdle(
                 AlarmManager.ELAPSED_REALTIME_WAKEUP,
                 SystemClock.elapsedRealtime() + FIRE_EVERY_MILLIS,
-                intent,
+                intent(context),
             )
         }
+
+        /** Nobody is paired any more, so there is nobody to report to. */
+        fun cancel(context: Context) {
+            context.getSystemService(AlarmManager::class.java)?.cancel(intent(context))
+        }
+
+        private fun intent(context: Context): PendingIntent = PendingIntent.getBroadcast(
+            context, 0, Intent(context, StatusAlarm::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
     }
 }

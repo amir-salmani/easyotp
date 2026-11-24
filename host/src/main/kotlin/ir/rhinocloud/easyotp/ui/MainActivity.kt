@@ -21,11 +21,12 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         web = WebView(this)
-        val shell = WebShell(this, assetRoot = "ui", network = false)
+        // If Android kills the page's process, this window starts again.
+        val shell = WebShell(this, assetRoot = "ui", network = false, onGone = ::recreate)
         setContentView(shell.frame(web))
         web.addJavascriptInterface(HostApi(this), "EasyOtpNative")
         shell.attach(web, "host.html")
-        HostEvents.onChange = ::changed
+        HostEvents.listen(onChange)
         // The page decides what Back means: close what is open, or leave.
         // From Android 13 a back gesture is delivered only this way.
         if (Build.VERSION.SDK_INT >= 33) {
@@ -48,7 +49,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        HostEvents.onChange = null
+        HostEvents.forget(onChange)
         web.destroy()
         super.onDestroy()
     }
@@ -60,7 +61,10 @@ class MainActivity : Activity() {
     }
 
     /** The page reads everything again. Safe from any thread. */
-    fun changed() = tell("easyotp:change")
+    private fun changed() = tell("easyotp:change")
+
+    /** One object, so that the window forgetting itself can be told from a newer window. */
+    private val onChange: () -> Unit = ::changed
 
     private fun tell(event: String) {
         web.post { web.evaluateJavascript("window.dispatchEvent(new Event('$event'))", null) }
