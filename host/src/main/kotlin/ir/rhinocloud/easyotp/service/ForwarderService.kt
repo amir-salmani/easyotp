@@ -272,8 +272,11 @@ class ForwarderService : Service() {
             at = message.receivedAt,
         ).encode()
 
+        // One bit a bridge learns: this one is not urgent. It already sees
+        // when a message passes; what it said stays sealed.
+        val quiet = MessageClassifier.looksLikeAd(message.body)
         return receivers.map { receiver ->
-            client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload))
+            client.deposit(receiver.boxId, id, ReceiverSealer.fromBase64Url(receiver.publicKey).seal(payload), quiet = quiet)
         }
     }
 

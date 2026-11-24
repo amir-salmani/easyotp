@@ -86,6 +86,29 @@ object MessageClassifier {
             ?.value
     }
 
+    /**
+     * "لغو۱۱", "لغو 11", "لغو=11": how to stop receiving. Iranian carriers
+     * require it on bulk advertising, and nothing else carries it.
+     */
+    private val OPT_OUT = Regex("لغو\\s*[=:：]?\\s*[0-9]{1,4}(?![0-9])")
+    private val LINK = Regex("https?://|www\\.|\\b[a-z0-9-]+\\.(ir|com|net|org|app|shop|co)\\b")
+    private val OFFER = Regex("تخفیف|جشنواره|فروش ویژه|قرعه.?کشی|جایزه|رایگان|هدیه|پیشنهاد ویژه|کد تخفیف|فرصت محدود|همین حالا بخر|\\boff\\b|%|٪")
+
+    /**
+     * Whether a message reads as advertising. The Host forwards it all the
+     * same; this only decides whether a bridge wakes a sleeping Receiver for
+     * it (DECISIONS D30). Never true for a message that carries a code.
+     *
+     * The same rule as `looksLikeAd` in receiver/src/spam.ts, which sorts such
+     * a message under Spam. The two should agree, or a person is woken for
+     * something their own screen then files as an advertisement.
+     */
+    fun looksLikeAd(body: String): Boolean {
+        if (extractCode(body) != null) return false
+        val text = normalizeDigits(body).lowercase()
+        return OPT_OUT.containsMatchIn(text) || (LINK.containsMatchIn(text) && OFFER.containsMatchIn(text))
+    }
+
     /** Characters between two ranges; zero if they touch or overlap. */
     private fun gap(a: IntRange, b: IntRange): Int = when {
         a.last < b.first -> b.first - a.last - 1
