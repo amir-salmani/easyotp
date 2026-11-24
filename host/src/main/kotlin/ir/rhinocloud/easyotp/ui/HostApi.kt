@@ -56,6 +56,8 @@ class HostApi(private val activity: MainActivity) {
         val pair = session
         return JSONObject()
             .put("version", versionName())
+            // Which copy of the screens is showing: fetched ones carry their own version (D32).
+            .put("screens", activity.screensVersion)
             // A maker whose phones hide a second app-killer, or null (see BrandSetup).
             .put("brand", BrandSetup.brand() ?: JSONObject.NULL)
             .put("label", label())
@@ -258,6 +260,12 @@ class HostApi(private val activity: MainActivity) {
     fun stopRing() {
         Buzzer.silence(context)
         context.getSystemService(android.app.NotificationManager::class.java)?.cancel(ForwarderService.RING_NOTIFICATION_ID)
+    }
+
+    /** The screens drew. Fetched screens are kept only after this (see Screens). */
+    @JavascriptInterface
+    fun ready() {
+        activity.drew = true
     }
 
     /** Leaves the app, when the page has nothing left for Back to close. */

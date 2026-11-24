@@ -26,6 +26,7 @@ import ir.rhinocloud.easyotp.data.PendingMessage
 import ir.rhinocloud.easyotp.data.Settings
 import ir.rhinocloud.easyotp.data.Receiver
 import ir.rhinocloud.easyotp.data.SentRecord
+import ir.rhinocloud.easyotp.dist.DistUpdater
 import ir.rhinocloud.easyotp.net.BridgeClient
 import ir.rhinocloud.easyotp.net.BridgeHealth
 import ir.rhinocloud.easyotp.net.Command
@@ -66,7 +67,15 @@ class ForwarderService : Service() {
     private val outbox by lazy { Outbox(applicationContext) }
     private val settings by lazy { Settings(applicationContext) }
 
-    private val client by lazy { BridgeClient(BridgeHealth(settings.bridges)) }
+    /** Made again when a signed list changes the bridges (DECISIONS D32). */
+    @Volatile
+    private var clientFor: Pair<List<ir.rhinocloud.easyotp.net.Bridge>, BridgeClient>? = null
+    private val client: BridgeClient
+        get() {
+            val bridges = runCatching { settings.bridges }.getOrDefault(Settings.SEED_BRIDGES)
+            clientFor?.let { (known, made) -> if (known == bridges) return made }
+            return BridgeClient(BridgeHealth(bridges)).also { clientFor = bridges to it }
+        }
 
     /**
      * Reports, sweeps and rings run here, off the drain's thread: a report to
@@ -140,6 +149,8 @@ class ForwarderService : Service() {
             }
             ACTION_STATUS -> {
                 report(receivers, ack = null)
+                // A newer bridge list, or newer screens, at most every few hours.
+                side.execute { DistUpdater(this, settings).runIfDue() }
                 listeners.values.forEach { listener -> side.execute { runCatching { listener.sweep() } } }
             }
             // Someone was just paired or removed. The new one should see this
@@ -301,8 +312,17 @@ class ForwarderService : Service() {
     }
 
     /** Starts a listener for each Receiver that has none, and stops those whose Receiver is gone. */
+    private var listeningAt: List<ir.rhinocloud.easyotp.net.Bridge> = emptyList()
+
     private fun listen(receivers: List<Receiver>) {
         val wanted = receivers.associateBy { it.id }
+        val now = runCatching { settings.bridges }.getOrDefault(Settings.SEED_BRIDGES)
+        // A new list of bridges: every listener starts again on it.
+        if (now != listeningAt) {
+            listeners.values.forEach { it.stop() }
+            listeners.clear()
+            listeningAt = now
+        }
         listeners.keys.filter { it !in wanted }.forEach { listeners.remove(it)?.stop() }
         val bridges = runCatching { settings.bridges }.getOrDefault(Settings.SEED_BRIDGES)
         wanted.filterKeys { it !in listeners }.forEach { (id, receiver) ->

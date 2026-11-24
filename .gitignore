@@ -14,7 +14,10 @@ captures/
 # Worker
 node_modules/
 .wrangler/
-dist/
+# Build output of the two npm packages. Not a bare dist/: the Host has a
+# Kotlin package of that name.
+bridge/dist/
+receiver/dist/
 .dev.vars
 
 # Editors / OS
