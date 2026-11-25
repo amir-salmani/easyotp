@@ -1006,3 +1006,7 @@ wake-up push, so the Android app would add a second way to do what is done.
 **What happens to the Android app:** it stays built and signed, as a window
 onto the same screens, and is not what anyone is told to install. Whether to
 publish it at all is decided with the first release.
+
+**Decided with v0.1.0 (2026-11-25):** it is published beside the Host, so the
+asset names D21 promises stay whole, and the release notes send people to the
+web app instead.
