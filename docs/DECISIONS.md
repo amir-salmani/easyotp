@@ -988,3 +988,25 @@ means a new APK for every phone. The key's notes say so where it is kept.
 from the live bridge and showed them after reopening. **Not yet seen:** a
 fetched copy failing to draw and being dropped; the Receiver's Android app
 getting the same, which it does not yet do.
+
+---
+
+## D33 — The web app is the Receiver on every phone (2026-11-24)
+
+**Chosen:** the Receiver is the web app, added to the home screen, on iPhone
+and on Android alike. It is the one that is woken when closed (D30).
+
+**Rejected:** waking the Receiver's Android app through Firebase, which would
+put Google and a new account in the path; a permanent background service in
+it, which would cost a notification and battery on the Receiver's phone.
+
+**Why:** the web app installed from Chrome on Android already receives the
+wake-up push, so the Android app would add a second way to do what is done.
+
+**What happens to the Android app:** it stays built and signed, as a window
+onto the same screens, and is not what anyone is told to install. Whether to
+publish it at all is decided with the first release.
+
+**Decided with v0.1.0 (2026-11-25):** it is published beside the Host, so the
+asset names D21 promises stay whole, and the release notes send people to the
+web app instead.

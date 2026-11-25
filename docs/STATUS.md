@@ -1,23 +1,25 @@
 ---
 type: Reference
-title: Status — 2026-11-24
+title: Status — 2026-11-25
 description: Written to be picked up cold. What is true, what is only believed, and what to do.
 status: active
 created: 2026-09-17
-timestamp: 2026-11-24
+timestamp: 2026-11-25
 tags: []
 ---
 
-# Status — 2026-11-24
+# Status — 2026-11-25
 
 Written to be picked up cold. Why things are as they are is in
 [DECISIONS.md](DECISIONS.md); this file is state.
 
-**It has run on one real phone for one evening.** On 2026-11-24 the Host was
-set up on a Nothing Phone (2) with Android 16 and two Iranian SIMs, paired with
-the web app on an iPhone, forwarded real SMS and rang when asked. What is left
-to prove is time: the same phone left alone for days, and a ring reaching it
-from deep sleep.
+**It has run on one real phone through a night, left alone.** On 2026-11-24
+the Host was set up on a Nothing Phone (2) with Android 16 and two Iranian
+SIMs, paired with the web app on an iPhone, forwarded real SMS and rang when
+asked. It was then left unplugged and unopened overnight, and the morning's
+codes still reached the web app. `v0.1.0` is the first release, for two more
+testers. What is left to prove: other phones and makers, days rather than a
+night, and a ring reaching a phone in deep sleep.
 
 ---
 
@@ -40,11 +42,13 @@ from deep sleep.
 
 **The emulator check** is `npm run emulator-check` in `receiver/`: the Host app
 on Android 16, the live bridges, and a script playing the Receiver. It passed
-on 2026-11-24 with a debug build and with the shrunk release build.
+on 2026-11-24 with a debug build and with the shrunk release build, and again
+on 2026-11-25 before `v0.1.0`. That day its first run stopped once on a sheet
+that did not close after the ring; the second run passed.
 
 ## 2. Not built
 
-- Waking the Receiver's Android app when it is closed (the web app is woken by a push from bridge 2, D30).
+- Nothing for waking a closed Receiver on Android: the web app is the Receiver everywhere (D33).
 - The Receiver's Android app taking new screens without a new APK, as the Host does (D32).
 - The dormant self-update of the Host's native core (D19).
 
@@ -55,8 +59,8 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 | Bridge 1 | Live. Its host follows the `live` image tag, which moves when `main` builds |
 | Bridge 2 | Live. Deployed by hand: `wrangler deploy` from `bridge/` |
 | Receiver web app | Live at `pwa.easyotp.rhinocloud.ir`. Deployed by hand: `npm run deploy` from `receiver/` |
-| Download links | `dl.amirsalmani.com/s/…` is live and returns 404 until the first release |
-| A release | None. The tag `gen1` marks the first working generation and publishes nothing. Every push builds signed APKs as workflow artifacts |
+| Download links | `dl.amirsalmani.com/s/…` serves the APKs of the latest release |
+| A release | `v0.1.0` (2026-11-25): both APKs. The tag `gen1` marks the first working generation and publishes nothing |
 | Signed files | Bridge 2 serves the signed bridge list and Host screens (D32). Bridge 1 serves them once `main` builds |
 
 ## 4. Build order
@@ -64,8 +68,8 @@ on 2026-11-24 with a debug build and with the shrunk release build.
 1. ~~Android apps, pairing, reports, ring, push, spam, answers and calls, contact names.~~ Done; tagged `gen1`.
 2. ~~Review of the second half, and its fixes.~~ Done.
 3. ~~Per-maker setup, deposit pace, signed list and screens (D32), dependency checksums.~~ Done.
-4. **Next: a night on the real phone, left alone.** Then the first release.
-5. Waking the Receiver's Android app.
+4. ~~A night on the real phone, left alone; the first release `v0.1.0`.~~ Done.
+5. **Next: two testers on their own phones.** What breaks on a maker other than Nothing.
 
 ## 5. Open debts
 
